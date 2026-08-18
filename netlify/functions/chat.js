@@ -8,8 +8,8 @@
 const PROVIDER = process.env.AI_PROVIDER || "gemini";
 
 const MODELS = {
-  primary: "gemini-2.5-flash",
-  fallback: "gemini-2.5-flash-lite", // used automatically if primary is rate-limited
+  primary: "gemini-3.6-flash",
+  fallback: "gemini-3.1-flash-lite", // used automatically if primary is rate-limited
 };
 
 async function callGemini(model, systemPrompt, messages) {
@@ -39,6 +39,12 @@ async function callGemini(model, systemPrompt, messages) {
     err.rateLimited = true;
     throw err;
   }
+  // 404 means the model was retired or renamed — fall back instead of failing.
+  if (res.status === 404) {
+    const err = new Error("model_unavailable");
+    err.shouldFallback = true;
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Gemini ${res.status}: ${body.slice(0, 300)}`);
@@ -64,7 +70,7 @@ export async function handler(event) {
     try {
       text = await callGemini(MODELS.primary, systemPrompt || "", messages);
     } catch (e) {
-      if (e.rateLimited) {
+      if (e.rateLimited || e.shouldFallback) {
         // Automatic fallback to the higher-quota model rather than failing
         text = await callGemini(MODELS.fallback, systemPrompt || "", messages);
       } else {
