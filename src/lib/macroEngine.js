@@ -53,6 +53,31 @@ export function calculateTargets(profile) {
 }
 
 // Example: 19M, 185cm, 72.5kg, trains 5x/week, mild recomp-style cut
+// Estimate the full micro/macro picture for a day's meals.
+export function analyseDay(meals, allIngredients) {
+  let kcal = 0, protein = 0, carbs = 0, fat = 0, fibre = 0, potassium = 0, sodium = 0;
+  meals.forEach((m) => {
+    (m.items || []).forEach(([id, qty]) => {
+      const ing = allIngredients.find((x) => x.id === id);
+      if (!ing) return;
+      const perUnit = ing.unit === "each" || ing.unit === "scoop";
+      const f = perUnit ? qty : qty / 100;
+      kcal += (perUnit ? (ing.kcalPerUnit ?? ing.kcal) : ing.kcal) * f;
+      protein += (perUnit ? (ing.proteinPerUnit ?? ing.protein) : ing.protein) * f;
+      carbs += (ing.carbs || 0) * f;
+      fat += (ing.fat || 0) * f;
+      fibre += (ing.fibre || 0) * f;
+      potassium += (ing.potassium || 0) * f;
+      sodium += (ing.sodium || 0) * f;
+    });
+  });
+  return {
+    kcal: Math.round(kcal), protein: Math.round(protein), carbs: Math.round(carbs),
+    fat: Math.round(fat), fibre: Math.round(fibre),
+    potassium: Math.round(potassium), sodium: Math.round(sodium),
+  };
+}
+
 export const sampleProfile = {
   age: 19,
   heightCm: 185,

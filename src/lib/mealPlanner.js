@@ -4,10 +4,10 @@
 // an actual weekly budget ceiling by swapping out the priciest meals until the
 // whole week's grocery cost fits.
 
-import { proteins, carbs, veg, fruit, dairy, pantry, estimateItemCost } from "./foodDatabase.js";
+import { allIngredients, estimateItemCost } from "./foodDatabase.js";
 import { buildGroceryList } from "./groceryListGenerator.js";
 
-const allDb = [...proteins, ...carbs, ...veg, ...fruit, ...dairy, ...pantry];
+const allDb = allIngredients;
 const lookup = (id) => allDb.find((x) => x.id === id);
 
 const WEEKLY_CAP = { salmon: 1, steak: 1 };
@@ -24,41 +24,40 @@ const INGREDIENT_MAX_G = {
 
 export const templates = {
   breakfast: [
-    { id: "greek_bowl", name: "Greek yoghurt & berry bowl", cuisine: "mediterranean", items: [["greek_yoghurt", 250], ["oats", 40], ["berries", 100], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "berries", time: 8 },
-    { id: "protein_oats", name: "Protein oats", cuisine: "british", items: [["oats", 80], ["banana", 120], ["peanut_butter_g", 25], ["greek_yoghurt", 100]], proteinAnchor: "oats", carbAnchor: "banana", time: 6 },
-    { id: "veggie_omelette", name: "Veggie omelette", cuisine: "british", items: [["eggs", 4], ["sourdough", 70], ["spinach", 40], ["mushroom", 50], ["cheese", 25]], proteinAnchor: "eggs", carbAnchor: null, time: 10 },
-    { id: "shakshuka", name: "Shakshuka", cuisine: "middle_eastern", items: [["eggs", 3], ["sourdough", 90], ["peppers", 80], ["feta", 30]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 12 },
-    { id: "eggs_sourdough", name: "Eggs & sourdough", cuisine: "british", items: [["eggs", 3], ["sourdough", 90], ["avocado", 80]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
-    { id: "yoghurt_parfait", name: "Yoghurt parfait", cuisine: "mediterranean", items: [["greek_yoghurt", 250], ["oats", 40], ["mango", 120], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "mango", time: 6 },
-    { id: "breakfast_quesadilla", name: "Egg & cheese quesadilla", cuisine: "mexican", items: [["eggs", 3], ["tortilla", 2], ["cheese", 40], ["avocado", 50]], proteinAnchor: "eggs", carbAnchor: "tortilla", time: 8, fun: true },
+    { id: "greek_bowl", name: "Greek yoghurt & berry bowl", cuisine: "simple", items: [["greek_yoghurt", 280], ["oats", 40], ["berries", 100], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
+    { id: "yoghurt_parfait", name: "Yoghurt parfait", cuisine: "simple", items: [["greek_yoghurt", 280], ["oats", 40], ["banana", 120], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 4 },
+    { id: "protein_smoothie", name: "Banana & peanut butter smoothie", cuisine: "simple", items: [["greek_yoghurt", 150], ["milk", 300], ["banana", 120], ["oats", 40], ["peanut_butter_g", 25]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
+    { id: "berry_smoothie", name: "Berry smoothie", cuisine: "simple", items: [["greek_yoghurt", 200], ["milk", 300], ["berries", 120], ["oats", 40]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
+    { id: "scrambled_eggs", name: "Scrambled eggs on toast", cuisine: "simple", items: [["eggs", 4], ["sourdough", 80], ["cheese", 25]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
+    { id: "fried_eggs_avo", name: "Fried eggs & avocado toast", cuisine: "simple", items: [["eggs", 3], ["sourdough", 80], ["avocado", 75]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
+    { id: "omelette", name: "Cheese & spinach omelette", cuisine: "simple", items: [["eggs", 4], ["sourdough", 60], ["spinach", 40], ["cheese", 30]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 9 },
   ],
   lunch: [
-    { id: "chicken_pita", name: "Chicken pita wrap", cuisine: "middle_eastern", items: [["chicken_thigh", 200], ["pita", 100], ["greek_yoghurt", 60], ["avocado", 50]], proteinAnchor: "chicken_thigh", carbAnchor: "pita", time: 20 },
     { id: "shawarma_bowl", name: "Chicken shawarma bowl", cuisine: "middle_eastern", items: [["chicken_thigh", 220], ["rice", 110], ["greek_yoghurt", 50], ["cherry_tomato", 80]], proteinAnchor: "chicken_thigh", carbAnchor: "rice", time: 22 },
-    { id: "teriyaki_bowl", name: "Chicken teriyaki rice bowl", cuisine: "japanese", items: [["chicken_breast", 220], ["rice", 110], ["edamame", 70], ["sesame_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 20 },
-    { id: "noodle_stirfry", name: "Chicken & rice noodle stir-fry", cuisine: "chinese", items: [["chicken_breast", 210], ["rice_noodles", 110], ["peppers", 90], ["sesame_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice_noodles", time: 20 },
-    { id: "tuna_bean_salad", name: "Tuna & white bean salad", cuisine: "mediterranean", items: [["tuna_tin", 2], ["sourdough", 80], ["cherry_tomato", 120], ["avocado", 80]], proteinAnchor: null, carbAnchor: null, time: 10 },
-    { id: "poke_bowl", name: "Salmon poke-style bowl", cuisine: "japanese", items: [["salmon", 170], ["rice", 120], ["cucumber", 80], ["edamame", 60], ["avocado", 60]], proteinAnchor: "salmon", carbAnchor: "rice", time: 15 },
-    { id: "quesadilla", name: "Cheesy chicken quesadilla", cuisine: "mexican", items: [["chicken_breast", 190], ["tortilla", 2], ["cheese", 50], ["avocado", 50]], proteinAnchor: "chicken_breast", carbAnchor: "tortilla", time: 15, fun: true },
-    { id: "loaded_potato", name: "Loaded baked potato", cuisine: "british", items: [["beef_mince_5", 180], ["potato", 350], ["cheese", 45], ["greek_yoghurt", 40]], proteinAnchor: "beef_mince_5", carbAnchor: "potato", time: 25, fun: true },
+    { id: "teriyaki_bowl", name: "Chicken teriyaki rice bowl", cuisine: "japanese", items: [["chicken_breast", 220], ["rice", 110], ["broccoli", 100], ["olive_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 20 },
+    { id: "chicken_wrap", name: "Chicken & avocado wrap", cuisine: "simple", items: [["chicken_thigh", 200], ["tortilla", 2], ["greek_yoghurt", 50], ["avocado", 60], ["cucumber", 60]], proteinAnchor: "chicken_thigh", carbAnchor: "tortilla", time: 18 },
+    { id: "quesadilla", name: "Cheesy chicken quesadilla", cuisine: "mexican", items: [["chicken_breast", 190], ["tortilla", 2], ["cheese", 50], ["peppers", 60]], proteinAnchor: "chicken_breast", carbAnchor: "tortilla", time: 15 },
+    { id: "egg_fried_rice", name: "Chicken egg-fried rice", cuisine: "chinese", items: [["chicken_breast", 200], ["rice", 120], ["eggs", 2], ["peppers", 80], ["olive_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 18 },
+    { id: "mince_pasta", name: "Beef mince pasta", cuisine: "italian", items: [["beef_mince_5", 200], ["pasta", 120], ["cherry_tomato", 100], ["cheese", 30]], proteinAnchor: "beef_mince_5", carbAnchor: "pasta", time: 22 },
+    { id: "loaded_potato", name: "Loaded baked potato", cuisine: "british", items: [["beef_mince_5", 180], ["sweet_potato", 350], ["cheese", 45], ["greek_yoghurt", 40]], proteinAnchor: "beef_mince_5", carbAnchor: "sweet_potato", time: 25 },
   ],
   snack: [
-    { id: "cucumber_chilli", name: "Cucumber, lemon & chilli", items: [["cucumber", 150]], time: 5 },
-    { id: "edamame_tomato", name: "Edamame & cherry tomatoes", items: [["edamame", 80], ["cherry_tomato", 100]], time: 3 },
-    { id: "watermelon", name: "Watermelon", items: [["watermelon", 250]], time: 2 },
-    { id: "celery_zucchini", name: "Celery & zucchini sticks", items: [["celery", 100], ["zucchini", 100], ["greek_yoghurt", 30]], time: 3 },
-    { id: "mixed_fruit", name: "Mixed fruit", items: [["apple", 150]], time: 2 },
+    { id: "cucumber_chilli", name: "Cucumber, lemon & chilli", items: [["cucumber", 150]], proteinAnchor: null, carbAnchor: null, time: 3 },
+    { id: "coconut_banana", name: "Coconut water & banana", items: [["coconut_water", 330], ["banana", 120]], proteinAnchor: null, carbAnchor: null, time: 1 },
+    { id: "yoghurt_snack", name: "Yoghurt & berries", items: [["greek_yoghurt", 150], ["berries", 80]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "banana_pb", name: "Banana & peanut butter", items: [["banana", 120], ["peanut_butter_g", 25]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "cheese_tomato", name: "Cheese & cherry tomatoes", items: [["cheese", 40], ["cherry_tomato", 120]], proteinAnchor: null, carbAnchor: null, time: 2 },
   ],
   dinner: [
-    { id: "salmon_greens_rice", name: "Salmon, sesame greens & rice", cuisine: "japanese", items: [["salmon", 180], ["rice", 120], ["broccoli", 120], ["sesame_oil_g", 10]], proteinAnchor: "salmon", carbAnchor: "rice", time: 25 },
-    { id: "steak_sweet_potato", name: "Steak & sweet potato mash", cuisine: "british", items: [["steak", 230], ["sweet_potato", 300], ["broccoli", 120], ["olive_oil_g", 10]], proteinAnchor: "steak", carbAnchor: "sweet_potato", time: 25 },
-    { id: "beef_tacos", name: "Beef mince lettuce tacos", cuisine: "mexican", items: [["beef_mince_5", 220], ["tortilla", 2], ["cheese", 40], ["cherry_tomato", 80], ["avocado", 60]], proteinAnchor: "beef_mince_5", carbAnchor: null, time: 20 },
-    { id: "tikka_curry", name: "Chicken tikka-style curry", cuisine: "indian", items: [["chicken_breast", 220], ["rice", 120], ["greek_yoghurt", 70], ["olive_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 28 },
-    { id: "lettuce_burger", name: "Homemade burger, lettuce wrap", cuisine: "american", items: [["beef_mince_5", 240], ["sweet_potato", 280], ["cheese", 30], ["avocado", 50]], proteinAnchor: "beef_mince_5", carbAnchor: "sweet_potato", time: 25 },
-    { id: "fajita_bowl", name: "Chicken fajita bowl", cuisine: "mexican", items: [["chicken_breast", 220], ["rice", 110], ["peppers", 120], ["cheese", 30], ["avocado", 50]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 22 },
-    { id: "pork_stirfry", name: "Pork tenderloin stir-fry", cuisine: "chinese", items: [["pork_tenderloin", 220], ["rice_noodles", 110], ["asparagus", 120], ["sesame_oil_g", 12]], proteinAnchor: "pork_tenderloin", carbAnchor: "rice_noodles", time: 20 },
-    { id: "chicken_nuggets", name: "Homemade chicken nuggets & sweet potato fries", cuisine: "american", items: [["chicken_breast", 220], ["sweet_potato", 300], ["breadcrumbs", 55], ["olive_oil_g", 12]], proteinAnchor: "chicken_breast", carbAnchor: "sweet_potato", time: 28, fun: true },
-    { id: "pork_schnitzel", name: "Crispy pork schnitzel", cuisine: "german", items: [["pork_tenderloin", 220], ["potato", 320], ["breadcrumbs", 45], ["olive_oil_g", 12]], proteinAnchor: "pork_tenderloin", carbAnchor: "potato", time: 25, fun: true },
+    { id: "salmon_greens_rice", name: "Salmon, greens & rice", cuisine: "japanese", items: [["salmon", 180], ["rice", 120], ["broccoli", 120], ["olive_oil_g", 10]], proteinAnchor: "salmon", carbAnchor: "rice", time: 25 },
+    { id: "beef_tacos", name: "Beef mince tacos", cuisine: "mexican", items: [["beef_mince_5", 220], ["tortilla", 3], ["cheese", 40], ["avocado", 60]], proteinAnchor: "beef_mince_5", carbAnchor: "tortilla", time: 20 },
+    { id: "tikka_curry", name: "Chicken tikka-style curry", cuisine: "indian", items: [["chicken_breast", 220], ["rice", 120], ["greek_yoghurt", 70], ["spinach", 60]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 28 },
+    { id: "burgers_wedges", name: "Homemade burgers & sweet potato wedges", cuisine: "american", items: [["beef_mince_5", 240], ["sweet_potato", 300], ["cheese", 30], ["avocado", 50]], proteinAnchor: "beef_mince_5", carbAnchor: "sweet_potato", time: 25 },
+    { id: "fajita_bowl", name: "Chicken fajita bowl", cuisine: "mexican", items: [["chicken_breast", 220], ["rice", 110], ["peppers", 120], ["cheese", 30]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 22 },
+    { id: "chicken_nuggets", name: "Chicken nuggets & sweet potato fries", cuisine: "american", items: [["chicken_breast", 220], ["sweet_potato", 300], ["breadcrumbs", 55], ["olive_oil_g", 12]], proteinAnchor: "chicken_breast", carbAnchor: "sweet_potato", time: 28 },
+    { id: "chicken_pasta", name: "Creamy chicken pasta", cuisine: "italian", items: [["chicken_breast", 210], ["pasta", 120], ["greek_yoghurt", 60], ["spinach", 60], ["cheese", 30]], proteinAnchor: "chicken_breast", carbAnchor: "pasta", time: 22 },
+    { id: "salmon_pasta", name: "Salmon & spinach pasta", cuisine: "italian", items: [["salmon", 170], ["pasta", 120], ["spinach", 60], ["greek_yoghurt", 50]], proteinAnchor: "salmon", carbAnchor: "pasta", time: 22 },
+    { id: "chicken_thigh_traybake", name: "Chicken thigh & sweet potato traybake", cuisine: "simple", items: [["chicken_thigh", 240], ["sweet_potato", 300], ["peppers", 100], ["olive_oil_g", 12]], proteinAnchor: "chicken_thigh", carbAnchor: "sweet_potato", time: 30 },
   ],
 };
 
@@ -377,7 +376,13 @@ function scoreWeek(week, targets, budgetCap) {
     score += pDiff > 0 ? pDiff * 1.5 : Math.abs(pDiff) * 0.3;
   });
 
-  // Reward variety: penalise每 repeated main meal.
+  // Penalise ingredient sprawl: every extra distinct ingredient is another thing
+  // to buy, carry home and watch go off. Reusing a core set is the goal.
+  const distinct = new Set();
+  week.forEach((d) => d.meals.forEach((m) => (m.items || []).forEach(([id]) => { if (id !== "whey") distinct.add(id); })));
+  score += Math.max(0, distinct.size - 20) * 25;
+
+  // Reward variety: penalise repeated main meals.
   ["Breakfast", "Lunch", "Dinner"].forEach((slot) => {
     const counts = {};
     week.forEach((d) => d.meals.filter((m) => m.slot === slot).forEach((m) => { counts[m.id] = (counts[m.id] || 0) + 1; }));

@@ -44,6 +44,14 @@ export async function getWeek(weekStart) {
   return data;
 }
 
+export async function listWeeks(limit = 12) {
+  if (!supabase) return memory.weeks;
+  const { data, error } = await supabase
+    .from("weeks").select("week_start, plan, targets").order("week_start", { ascending: false }).limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
 // ---------- Meal logs ----------
 export async function logMeal({ date, slot, status, mealName, kcal, protein, note }) {
   const row = { log_date: date, slot, status, meal_name: mealName, kcal, protein, note };
