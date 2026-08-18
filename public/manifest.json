@@ -1,0 +1,9 @@
+{
+  "name": "hungryvar",
+  "short_name": "hungryvar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#10141B",
+  "theme_color": "#10141B",
+  "icons": []
+}
