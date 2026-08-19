@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { calculateTargets, sampleProfile, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek } from "./lib/mealPlanner.js";
+import { generateWeek, templates } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
@@ -157,6 +157,8 @@ export default function App() {
   const [toast, setToast] = useState(null);
   const [pendingAteOut, setPendingAteOut] = useState(null);
   const [ateOutText, setAteOutText] = useState("");
+  const [haveEnough, setHaveEnoughState] = useState([]);
+  const [confirmNew, setConfirmNew] = useState(false);
   const chatEnd = useRef(null);
 
   useEffect(() => { boot(); }, []);
@@ -169,21 +171,35 @@ export default function App() {
       else await makeWeek();
       setHistory(await store.listWeeks());
       setCustom(await store.getCustomItems());
+      const he = await store.getHaveEnough();
+      setHaveEnoughState(he.map((h) => h.ingredient_id));
     } catch { await makeWeek(); }
   }
 
-  async function refreshGrocery(plan) {
+  async function refreshGrocery(plan, heOverride) {
     let left = {};
     try { left = await store.getLeftovers(); } catch {}
-    setGrocery(buildGroceryList(plan, left));
+    const he = heOverride ?? haveEnough;
+    setGrocery(buildGroceryList(plan, left, he));
+  }
+
+  async function toggleHaveEnough(id, on) {
+    const next = on ? [...haveEnough, id] : haveEnough.filter((x) => x !== id);
+    setHaveEnoughState(next);
+    try { await store.setHaveEnough(id, on); } catch {}
+    if (week) await refreshGrocery(week, next);
+    flash(on ? "Removed — you've got enough" : "Back on the list");
   }
 
   async function makeWeek() {
-    setBusy(true);
+    setBusy(true); setConfirmNew(false);
     const plan = generateWeek(targets, 65);
-    setWeek(plan); await refreshGrocery(plan);
-    try { await store.saveWeek(store.currentWeekStart(), plan, targets, 65); setHistory(await store.listWeeks()); } catch {}
-    setBusy(false); flash("New week generated");
+    setWeek(plan); setViewingHistory(null); await refreshGrocery(plan);
+    try {
+      await store.saveWeekVersion(store.currentWeekStart(), plan, targets, 65);
+      setHistory(await store.listWeeks());
+    } catch {}
+    setBusy(false); flash("New plan generated — old ones are still in history");
   }
 
   const flash = (m) => { setToast(m); setTimeout(() => setToast(null), 2400); };
@@ -216,9 +232,9 @@ export default function App() {
     try {
       let pantry = [];
       try { pantry = await store.getPantry(); } catch {}
-      const { reply, action } = await askAssistant(next, { week, pantry, targets });
+      const { reply, actions } = await askAssistant(next, { week, pantry, targets });
       setChat([...next, { role: "assistant", content: reply }]);
-      if (action) await runAction(action);
+      for (const a of actions || []) await runAction(a);
     } catch (e) {
       setChat([...next, { role: "assistant", content: `Couldn't reach the assistant — ${e.message}` }]);
     }
@@ -230,22 +246,66 @@ export default function App() {
     setInput(""); await sendMessage(text);
   }
 
+  function recalc(plan) {
+    return plan.map((d) => ({
+      ...d,
+      totals: d.meals.reduce((x, m) => ({ kcal: Math.round(x.kcal + m.kcal), protein: Math.round(x.protein + m.protein) }), { kcal: 0, protein: 0 }),
+    }));
+  }
+
+  async function applyWeek(updated) {
+    const fixed = recalc(updated);
+    setWeek(fixed);
+    await refreshGrocery(fixed);
+    try { await store.saveWeek(store.currentWeekStart(), fixed, targets, 65); } catch {}
+    return fixed;
+  }
+
   async function runAction(a) {
+    if (!a || !a.type) return;
+
     if (a.type === "regenerate_week") return makeWeek();
-    if (a.type === "swap_meal" && week) {
-      const fresh = generateWeek(targets, 65);
+
+    if ((a.type === "swap_meal" || a.type === "set_meal") && week) {
       const di = DAYS.indexOf(a.day);
       if (di < 0) return;
-      const rep = fresh[di].meals.find((m) => m.slot === a.slot);
-      if (!rep) return;
-      const upd = week.map((d, i) => i !== di ? d : { ...d, meals: d.meals.map((m) => m.slot === a.slot ? rep : m) })
-        .map((d) => ({ ...d, totals: d.meals.reduce((x, m) => ({ kcal: Math.round(x.kcal + m.kcal), protein: Math.round(x.protein + m.protein) }), { kcal: 0, protein: 0 }) }));
-      setWeek(upd); await refreshGrocery(upd);
-      try { await store.saveWeek(store.currentWeekStart(), upd, targets, 65); } catch {}
-      flash(`Swapped ${a.day} ${a.slot}`);
+      let replacement = null;
+
+      if (a.type === "set_meal" && a.templateId) {
+        const slotKey = (a.slot || "").toLowerCase();
+        const tpl = (templates[slotKey] || []).find((x) => x.id === a.templateId);
+        if (tpl) {
+          const fresh = generateWeek(targets, 65);
+          // build the chosen template with sensible portions by borrowing a generated one
+          const sample = fresh.flatMap((d) => d.meals).find((m) => m.id === a.templateId);
+          replacement = sample || { ...tpl, slot: a.slot, kcal: 0, protein: 0 };
+        }
+      } else {
+        const fresh = generateWeek(targets, 65);
+        const current = week[di].meals.find((m) => m.slot === a.slot);
+        replacement = fresh[di].meals.find((m) => m.slot === a.slot && m.id !== current?.id)
+          || fresh[di].meals.find((m) => m.slot === a.slot);
+      }
+      if (!replacement) return;
+
+      await applyWeek(week.map((d, i) => i !== di ? d : { ...d, meals: d.meals.map((m) => m.slot === a.slot ? replacement : m) }));
+      flash(`Updated ${a.day} ${a.slot}`);
+      return;
     }
+
     if (a.type === "add_grocery") {
       try { await store.addCustomItem(a.name, a.quantity || ""); setCustom(await store.getCustomItems()); flash(`Added ${a.name}`); } catch {}
+      return;
+    }
+
+    if (a.type === "have_enough" && a.ingredient) {
+      await toggleHaveEnough(a.ingredient, true);
+      return;
+    }
+
+    if (a.type === "need_again" && a.ingredient) {
+      await toggleHaveEnough(a.ingredient, false);
+      return;
     }
   }
 
@@ -266,6 +326,21 @@ export default function App() {
 
       {toast && <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: t.teal, color: t.bg, padding: "10px 20px", borderRadius: 100, fontWeight: 600, fontSize: 14, zIndex: 200 }}>{toast}</div>}
       {openMeal && <MealDetail meal={openMeal} onClose={() => setOpenMeal(null)} />}
+
+      {confirmNew && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", zIndex: 150, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: t.panel, border: `1px solid ${t.line}`, borderRadius: 18, padding: 28, maxWidth: 440, width: "100%" }}>
+            <h3 style={{ margin: "0 0 8px", fontSize: 20, fontWeight: 700 }}>Generate a new plan?</h3>
+            <p style={{ fontSize: 14.5, color: t.soft, margin: "0 0 20px", lineHeight: 1.55 }}>
+              This builds a fresh set of meals and a new shopping list. Your current plan is kept — you can switch back to it from the week list at the top of the Plan tab.
+            </p>
+            <div className="flex" style={{ gap: 8 }}>
+              <button onClick={makeWeek} style={{ flex: 1, padding: 12, borderRadius: 11, background: t.peri, color: t.bg, border: "none", fontWeight: 600, fontSize: 14.5 }}>Generate</button>
+              <button onClick={() => setConfirmNew(false)} style={{ padding: "12px 20px", borderRadius: 11, background: "transparent", color: t.soft, border: `1px solid ${t.line}`, fontSize: 14.5 }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingAteOut && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.72)", zIndex: 150, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -293,9 +368,9 @@ export default function App() {
                 <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: "-.03em", margin: 0 }}>hungryvar</h1>
                 <div style={{ fontSize: 13.5, color: t.soft, marginTop: 3 }}>{targets.targetKcal} kcal · {targets.protein}g protein · £65 a week</div>
               </div>
-              <button onClick={makeWeek} disabled={busy}
+              <button onClick={() => setConfirmNew(true)} disabled={busy}
                 style={{ background: t.cardHi, color: t.peri, border: `1px solid ${t.line}`, borderRadius: 11, padding: "10px 18px", fontSize: 13.5, fontWeight: 600, opacity: busy ? .5 : 1 }}>
-                {busy ? "generating…" : "new week"}
+                {busy ? "generating…" : "new plan"}
               </button>
             </div>
             <div className="flex" style={{ gap: 4 }}>
@@ -334,7 +409,13 @@ export default function App() {
                                 {it.name}
                               </div>
                               {it.note && <div style={{ fontSize: 12.5, color: t.dim, marginTop: 2 }}>{it.note}</div>}
+                              {it.longLife && !it.note && <div style={{ fontSize: 12.5, color: t.dim, marginTop: 2 }}>lasts weeks — skip if you still have some</div>}
                             </div>
+                            <button onClick={() => toggleHaveEnough(it.id, true)}
+                              title="Remove this — I've already got plenty"
+                              style={{ background: "transparent", border: `1px solid ${t.line}`, color: t.dim, borderRadius: 8, padding: "6px 11px", fontSize: 12, whiteSpace: "nowrap" }}>
+                              I have enough
+                            </button>
                             {it.guide && (
                               <button onClick={() => setExpandGuide((p) => ({ ...p, [it.id]: !p[it.id] }))}
                                 style={{ background: "transparent", border: `1px solid ${t.line}`, color: t.soft, borderRadius: 8, padding: "6px 11px", fontSize: 12, whiteSpace: "nowrap" }}>
@@ -356,6 +437,25 @@ export default function App() {
                     </div>
                   </div>
                 ))}
+
+                {haveEnough.length > 0 && (
+                  <div style={{ marginBottom: 26 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 11 }}>
+                      You said you have enough
+                    </div>
+                    <div className="flex flex-wrap" style={{ gap: 8 }}>
+                      {haveEnough.map((id) => {
+                        const ing = allIngredients.find((x) => x.id === id);
+                        return (
+                          <button key={id} onClick={() => toggleHaveEnough(id, false)}
+                            style={{ background: t.card, border: `1px solid ${t.line}`, color: t.soft, borderRadius: 100, padding: "8px 14px", fontSize: 13 }}>
+                            {ing?.name || id} <span style={{ color: t.peri, marginLeft: 4 }}>+ add back</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <AddItem onAdd={async (n, q) => { try { await store.addCustomItem(n, q); setCustom(await store.getCustomItems()); flash("Added"); } catch { flash("Couldn't save"); } }} />
 
@@ -384,12 +484,23 @@ export default function App() {
                     <span style={{ fontSize: 13, color: t.soft }}>Week:</span>
                     <button onClick={() => setViewingHistory(null)}
                       style={{ background: !viewingHistory ? t.peri : t.card, color: !viewingHistory ? t.bg : t.soft, border: `1px solid ${!viewingHistory ? t.peri : t.line}`, borderRadius: 9, padding: "6px 13px", fontSize: 13, fontWeight: 600 }}>This week</button>
-                    {history.filter((h) => h.week_start !== store.currentWeekStart()).slice(0, 5).map((h) => (
-                      <button key={h.week_start} onClick={() => setViewingHistory(h)}
-                        style={{ background: viewingHistory?.week_start === h.week_start ? t.peri : t.card, color: viewingHistory?.week_start === h.week_start ? t.bg : t.soft, border: `1px solid ${viewingHistory?.week_start === h.week_start ? t.peri : t.line}`, borderRadius: 9, padding: "6px 13px", fontSize: 13 }}>
-                        {new Date(h.week_start).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
-                      </button>
-                    ))}
+                    {history.slice(1, 7).map((h, i) => {
+                      const on = viewingHistory?.id === h.id;
+                      const when = h.created_at ? new Date(h.created_at) : new Date(h.week_start);
+                      return (
+                        <button key={h.id || i} onClick={() => setViewingHistory(h)}
+                          style={{ background: on ? t.peri : t.card, color: on ? t.bg : t.soft, border: `1px solid ${on ? t.peri : t.line}`, borderRadius: 9, padding: "6px 13px", fontSize: 13 }}>
+                          {when.toLocaleDateString("en-GB", { day: "numeric", month: "short" })} · {when.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {viewingHistory && (
+                  <div style={{ background: "rgba(124,156,255,.1)", border: `1px solid ${t.peri}`, borderRadius: 12, padding: "12px 16px", marginBottom: 18, fontSize: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span>Viewing an older plan — logging is disabled here.</span>
+                    <button onClick={() => setViewingHistory(null)} style={{ background: t.peri, color: t.bg, border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600 }}>Back to current</button>
                   </div>
                 )}
 
@@ -423,7 +534,7 @@ export default function App() {
 
                 <div className="space-y-2.5">
                   {day.meals.map((m, i) => (
-                    <MealCard key={i} meal={m} status={dayStatus(m.slot)} onOpen={setOpenMeal} onMark={mark} />
+                    <MealCard key={i} meal={m} status={dayStatus(m.slot)} onOpen={setOpenMeal} onMark={viewingHistory ? () => flash("Switch to the current plan to log meals") : mark} />
                   ))}
                 </div>
               </>

@@ -58,7 +58,7 @@ function costOf(id, grams, packs) {
   return ((pricePer100g[id] || 0.3) * grams) / 100;
 }
 
-export function buildGroceryList(week, leftovers = {}) {
+export function buildGroceryList(week, leftovers = {}, haveEnough = []) {
   const totals = {};
   week.forEach((day) => {
     day.meals.forEach((meal) => {
@@ -72,6 +72,7 @@ export function buildGroceryList(week, leftovers = {}) {
   const items = Object.entries(totals).map(([id, rawQty]) => {
     const ing = allIngredients.find((x) => x.id === id);
     if (!ing) return null;
+    if (haveEnough.includes(id)) return null; // you said you've got plenty
     const owned = leftovers[id] || 0;
     const needed = Math.max(0, rawQty - owned);
     if (needed <= 0) return null;
@@ -87,6 +88,7 @@ export function buildGroceryList(week, leftovers = {}) {
       alreadyOwned: owned,
       estCost: Math.round(costOf(id, purchase.buyGrams, purchase.packs) * 100) / 100,
       aisle: aisleFor(id),
+      longLife: Boolean(purchaseUnits[id]?.bulk),
       storage: ing.storageDays,
       guide: shoppingGuide[id] || null,
     };

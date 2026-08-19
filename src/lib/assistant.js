@@ -32,6 +32,11 @@ FOOD PREFERENCES:
 
 HOW TO RESPOND:
 - Be concise and practical. He's cooking in a student kitchen, not writing a thesis.
+- Keep replies SHORT. A few sentences, or 2-3 bullet points. Don't write full recipes
+  unless he explicitly asks for one — suggest the dish and the key idea, and let him
+  ask for detail if he wants it.
+- If suggesting meal options, name them with a one-line description each. No long
+  ingredient lists or step-by-step methods in chat.
 - When suggesting swaps, respect his macros, budget and what's already in his pantry.
 - If he says he can't find an ingredient while shopping, give 2-3 realistic UK supermarket alternatives.
 - Never suggest corn. Never suggest mixing whey into food.
@@ -42,30 +47,51 @@ HOW TO RESPOND:
  * it returns a JSON block. We parse it out and hand it back as an action.
  */
 const ACTION_INSTRUCTIONS = `
-If the user asks you to change something in the app, end your reply with a JSON
-block on its own lines, wrapped exactly like this:
+You can CHANGE the app, not just talk about it. When the user asks for a change,
+write your short conversational reply first, then add an action block at the very end:
 
 <<<ACTION
-{"type":"swap_meal","day":"Thu","slot":"Dinner","reason":"..."}
+{"type":"swap_meal","day":"Thu","slot":"Dinner"}
 ACTION>>>
 
-Valid action types:
-- {"type":"swap_meal","day":"Mon","slot":"Dinner","reason":"..."}
-- {"type":"add_grocery","name":"Sriracha","quantity":"1 bottle"}
-- {"type":"log_meal","day":"Wed","slot":"Lunch","status":"ate_out","note":"..."}
-- {"type":"regenerate_week","reason":"..."}
-Only include an action block if the user actually asked for a change.
-Always write your normal conversational reply BEFORE the action block.
+You may include SEVERAL actions as a JSON array:
+
+<<<ACTION
+[{"type":"have_enough","ingredient":"rice"},{"type":"add_grocery","name":"Sriracha","quantity":"1 bottle"}]
+ACTION>>>
+
+Available actions:
+- {"type":"swap_meal","day":"Mon","slot":"Dinner"}  — replace one meal with a different one
+- {"type":"set_meal","day":"Mon","slot":"Dinner","templateId":"beef_tacos"}  — set a SPECIFIC meal
+- {"type":"regenerate_week"}  — build a whole new week (only if they clearly ask)
+- {"type":"add_grocery","name":"Sriracha","quantity":"1 bottle"}  — add something to the list
+- {"type":"have_enough","ingredient":"rice"}  — remove an item from the list because they already have it
+- {"type":"need_again","ingredient":"rice"}  — put a previously-removed item back on the list
+
+Valid day values: Mon Tue Wed Thu Fri Sat Sun
+Valid slot values: Breakfast Lunch Snack Dinner
+Valid templateId values (use these exact ids for set_meal):
+BREAKFAST: greek_bowl, yoghurt_parfait, protein_smoothie, berry_smoothie, scrambled_eggs, fried_eggs_avo, omelette
+LUNCH: shawarma_bowl, teriyaki_bowl, chicken_wrap, quesadilla, egg_fried_rice, mince_pasta, loaded_potato
+SNACK: cucumber_chilli, coconut_banana, yoghurt_snack, banana_pb, cheese_tomato
+DINNER: salmon_greens_rice, beef_tacos, tikka_curry, burgers_wedges, fajita_bowl, chicken_nuggets, chicken_pasta, salmon_pasta, chicken_thigh_traybake
+Valid ingredient ids: chicken_breast, chicken_thigh, salmon, beef_mince_5, eggs, greek_yoghurt, milk,
+coconut_water, cheese, rice, pasta, oats, sourdough, tortilla, sweet_potato, potato, rice_noodles,
+breadcrumbs, peanut_butter_g, olive_oil_g, berries, banana, apple, avocado, cucumber, peppers,
+broccoli, spinach, cherry_tomato, watermelon
+
+Only include an action block when they actually want something changed.
 `;
 
 export function parseAction(text) {
   const match = text.match(/<<<ACTION\s*([\s\S]*?)\s*ACTION>>>/);
-  if (!match) return { reply: text.trim(), action: null };
+  if (!match) return { reply: text.trim(), actions: [] };
   const reply = text.replace(match[0], "").trim();
   try {
-    return { reply, action: JSON.parse(match[1]) };
+    const parsed = JSON.parse(match[1]);
+    return { reply, actions: Array.isArray(parsed) ? parsed : [parsed] };
   } catch {
-    return { reply, action: null };
+    return { reply, actions: [] };
   }
 }
 
@@ -78,7 +104,7 @@ export async function askAssistant(messages, context = {}) {
 CURRENT STATE:
 ${context.week ? `This week's plan:\n${summarisePlan(context.week)}` : "No plan generated yet."}
 
-${context.pantry?.length ? `In the kitchen right now:\n${context.pantry.map((p) => `- ${p.name}: ${p.quantity}${p.unit}`).join("\n")}` : "Pantry is empty or unknown."}
+${context.pantry?.length ? `In the kitchen: ${context.pantry.filter((p) => p.quantity > 0).map((p) => p.name).join(", ")}` : ""}
 
 ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- ${l.slot}: ${l.status}${l.meal_name ? ` (${l.meal_name})` : ""}`).join("\n")}` : ""}
 `.trim();
@@ -101,8 +127,12 @@ ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- 
 }
 
 function summarisePlan(week) {
+  // Only the rest of the week is relevant — sending all 7 days of detail
+  // makes the prompt bigger and the reply slower for no benefit.
+  const d = new Date().getDay();
+  const todayIdx = d === 0 ? 6 : d - 1;
   return week
-    .map((d) => `${d.day} (${d.totals.kcal}kcal, ${d.totals.protein}g protein): ` +
-      d.meals.map((m) => `${m.slot}=${m.name}`).join(", "))
+    .slice(todayIdx)
+    .map((day) => `${day.day}: ` + day.meals.filter((m) => m.slot !== "Shake").map((m) => `${m.slot} ${m.name}`).join(" | "))
     .join("\n");
 }

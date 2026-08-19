@@ -92,3 +92,12 @@ select * from (values
   ('Plain flour','Basics'), ('Breadcrumbs / panko','Basics'), ('Popcorn kernels','Basics')
 ) as t(name, category)
 where not exists (select 1 from staples);
+
+-- Items you already have enough of — kept off the shopping list until you untick them
+create table if not exists have_enough (
+  ingredient_id text primary key,
+  marked_at timestamptz default now()
+);
+
+-- Allow multiple plan versions per week so old ones stay browsable
+alter table weeks drop constraint if exists weeks_week_start_key;

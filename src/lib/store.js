@@ -11,7 +11,7 @@ export const isConfigured = Boolean(url && key);
 export const supabase = isConfigured ? createClient(url, key) : null;
 
 // In-memory fallback so the UI works before Supabase is wired up
-const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [] };
+const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [] };
 
 function mondayOf(date = new Date()) {
   const d = new Date(date);
@@ -23,6 +23,22 @@ function mondayOf(date = new Date()) {
 export const currentWeekStart = mondayOf;
 
 // ---------- Weeks ----------
+// A week is identified by its start date, but you can generate several plans for
+// the same week. Each new one is stored with a version so the old one survives.
+export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
+  const stamped = { ...plan };
+  if (!supabase) {
+    memory.weeks.unshift({ week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() });
+    return memory.weeks[0];
+  }
+  const { data, error } = await supabase
+    .from("weeks")
+    .insert({ week_start: weekStart, plan, targets, budget_cap: budgetCap })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
 export async function saveWeek(weekStart, plan, targets, budgetCap) {
   if (!supabase) {
     memory.weeks = [{ week_start: weekStart, plan, targets, budget_cap: budgetCap }];
@@ -44,10 +60,11 @@ export async function getWeek(weekStart) {
   return data;
 }
 
-export async function listWeeks(limit = 12) {
+export async function listWeeks(limit = 20) {
   if (!supabase) return memory.weeks;
   const { data, error } = await supabase
-    .from("weeks").select("week_start, plan, targets").order("week_start", { ascending: false }).limit(limit);
+    .from("weeks").select("id, week_start, plan, targets, created_at")
+    .order("created_at", { ascending: false }).limit(limit);
   if (error) throw error;
   return data || [];
 }
@@ -131,6 +148,31 @@ export async function consumeIngredients(items) {
     const row = pantry.find((p) => p.ingredient_id === id);
     if (!row) continue;
     await setPantryItem(id, row.name, Math.max(0, Number(row.quantity) - qty), row.unit);
+  }
+}
+
+// ---------- "I have enough" — items to leave off the shopping list ----------
+export async function getHaveEnough() {
+  if (!supabase) return memory.haveEnough || [];
+  const { data, error } = await supabase.from("have_enough").select("*");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function setHaveEnough(ingredientId, enough) {
+  if (!supabase) {
+    memory.haveEnough = memory.haveEnough || [];
+    memory.haveEnough = enough
+      ? [...memory.haveEnough.filter((h) => h.ingredient_id !== ingredientId), { ingredient_id: ingredientId }]
+      : memory.haveEnough.filter((h) => h.ingredient_id !== ingredientId);
+    return;
+  }
+  if (enough) {
+    const { error } = await supabase.from("have_enough").upsert({ ingredient_id: ingredientId, marked_at: new Date().toISOString() }, { onConflict: "ingredient_id" });
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("have_enough").delete().eq("ingredient_id", ingredientId);
+    if (error) throw error;
   }
 }
 

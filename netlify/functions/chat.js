@@ -8,8 +8,8 @@
 const PROVIDER = process.env.AI_PROVIDER || "gemini";
 
 const MODELS = {
-  primary: "gemini-3.6-flash",
-  fallback: "gemini-3.1-flash-lite", // used automatically if primary is rate-limited
+  primary: "gemini-3.1-flash-lite",
+  fallback: "gemini-3.6-flash", // used automatically if primary is rate-limited
 };
 
 async function callGemini(model, systemPrompt, messages) {
@@ -29,7 +29,7 @@ async function callGemini(model, systemPrompt, messages) {
       body: JSON.stringify({
         contents,
         systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.7, maxOutputTokens: 1200 },
+        generationConfig: { temperature: 0.7 },
       }),
     }
   );
