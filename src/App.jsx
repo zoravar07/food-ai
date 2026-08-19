@@ -106,7 +106,7 @@ function MealDetail({ meal, onClose }) {
   );
 }
 
-function MealCard({ meal, status, onOpen, onMark }) {
+function MealCard({ meal, status, log, onOpen, onMark }) {
   const done = status === "eaten", out = status === "ate_out";
   return (
     <div style={{ background: t.card, border: `1px solid ${done ? "rgba(77,212,184,.35)" : t.line}`, borderRadius: 16, display: "flex", opacity: status === "skipped" ? .5 : 1 }}>
@@ -122,10 +122,14 @@ function MealCard({ meal, status, onOpen, onMark }) {
           {meal.time && <span style={{ fontSize: 11.5, color: t.dim }}>{meal.time} min</span>}
           {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>· ate out</span>}
         </div>
-        <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", marginBottom: 5 }}>{meal.name}</div>
+        <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: "-.01em", marginBottom: 5 }}>
+          {out && log?.meal_name ? log.meal_name : meal.name}
+        </div>
         <div style={{ fontSize: 13.5, color: t.soft }}>
-          {Math.round(meal.kcal)} kcal · {Math.round(meal.protein)}g protein
-          <span style={{ color: t.peri, marginLeft: 10 }}>view recipe →</span>
+          {out
+            ? `${Math.round(log?.kcal || 0)} kcal · ${Math.round(log?.protein || 0)}g protein (estimated)`
+            : `${Math.round(meal.kcal)} kcal · ${Math.round(meal.protein)}g protein`}
+          {!out && <span style={{ color: t.peri, marginLeft: 10 }}>view recipe →</span>}
         </div>
       </div>
       <div style={{ padding: 18, display: "flex", alignItems: "center" }}>
@@ -173,7 +177,19 @@ export default function App() {
       setCustom(await store.getCustomItems());
       const he = await store.getHaveEnough();
       setHaveEnoughState(he.map((h) => h.ingredient_id));
+      await loadLogs();
     } catch { await makeWeek(); }
+  }
+
+  // Pull this week's logs so the tracker shows what was ACTUALLY eaten.
+  async function loadLogs() {
+    try {
+      const start = iso(dateForIdx(0)), end = iso(dateForIdx(6));
+      const rows = await store.getLogsForRange(start, end);
+      const map = {};
+      rows.forEach((r) => { map[`${r.log_date}|${r.slot}`] = r; });
+      setLogs(map);
+    } catch {}
   }
 
   async function refreshGrocery(plan, heOverride) {
@@ -207,9 +223,15 @@ export default function App() {
   async function mark(meal, status) {
     const date = iso(dateForIdx(dayIdx));
     if (status === "ate_out") { setAteOutText(""); setPendingAteOut({ meal, date }); return; }
-    setLogs((p) => ({ ...p, [`${date}|${meal.slot}`]: status }));
+    const mac = analyseDay([meal], allIngredients);
+    setLogs((p) => {
+      const n = { ...p };
+      if (status) n[`${date}|${meal.slot}`] = { log_date: date, slot: meal.slot, status, meal_name: meal.name, kcal: mac.kcal, protein: mac.protein, carbs: mac.carbs, fat: mac.fat };
+      else delete n[`${date}|${meal.slot}`];
+      return n;
+    });
     try {
-      if (status) await store.logMeal({ date, slot: meal.slot, status, mealName: meal.name, kcal: meal.kcal, protein: meal.protein });
+      if (status) await store.logMeal({ date, slot: meal.slot, status, mealName: meal.name, kcal: mac.kcal, protein: mac.protein, carbs: mac.carbs, fat: mac.fat });
       if (status === "eaten" && meal.items) await store.consumeIngredients(meal.items.filter(([id]) => id !== "whey"));
     } catch {}
     if (status) flash("Logged");
@@ -218,7 +240,7 @@ export default function App() {
   async function confirmAteOut(desc) {
     const { meal, date } = pendingAteOut;
     setPendingAteOut(null);
-    setLogs((p) => ({ ...p, [`${date}|${meal.slot}`]: "ate_out" }));
+    setLogs((p) => ({ ...p, [`${date}|${meal.slot}`]: { log_date: date, slot: meal.slot, status: "ate_out", meal_name: desc || "ate out", kcal: 0, protein: 0, carbs: 0, fat: 0 } }));
     try { await store.logMeal({ date, slot: meal.slot, status: "ate_out", mealName: desc || "ate out", note: desc }); } catch {}
     flash("Logged as eaten out");
     if (desc && desc.trim()) {
@@ -298,6 +320,24 @@ export default function App() {
       return;
     }
 
+    if (a.type === "log_estimate") {
+      const di = a.day ? DAYS.indexOf(a.day) : dayIdx;
+      const date = iso(dateForIdx(di >= 0 ? di : dayIdx));
+      const row = {
+        log_date: date, slot: a.slot || "Lunch", status: "ate_out",
+        meal_name: a.description || "ate out",
+        kcal: Number(a.kcal) || 0, protein: Number(a.protein) || 0,
+        carbs: Number(a.carbs) || 0, fat: Number(a.fat) || 0,
+      };
+      setLogs((p) => ({ ...p, [`${date}|${row.slot}`]: row }));
+      try {
+        await store.logMeal({ date, slot: row.slot, status: "ate_out", mealName: row.meal_name,
+          kcal: row.kcal, protein: row.protein, carbs: row.carbs, fat: row.fat, note: a.description });
+      } catch {}
+      flash(`Logged ${row.kcal} kcal`);
+      return;
+    }
+
     if (a.type === "have_enough" && a.ingredient) {
       await toggleHaveEnough(a.ingredient, true);
       return;
@@ -312,7 +352,30 @@ export default function App() {
   const activeWeek = viewingHistory?.plan || week;
   const day = activeWeek?.[dayIdx];
   const dayMacros = day ? analyseDay(day.meals, allIngredients) : null;
-  const dayStatus = (slot) => logs[`${iso(dateForIdx(dayIdx))}|${slot}`];
+  const dayLog = (slot) => logs[`${iso(dateForIdx(dayIdx))}|${slot}`];
+  const dayStatus = (slot) => dayLog(slot)?.status;
+
+  // What he has ACTUALLY eaten today: starts at zero, rises as meals are logged.
+  const consumed = (() => {
+    const date = iso(dateForIdx(dayIdx));
+    const acc = { kcal: 0, protein: 0, carbs: 0, fat: 0, fibre: 0, potassium: 0 };
+    if (!day) return acc;
+    day.meals.forEach((m) => {
+      const log = logs[`${date}|${m.slot}`];
+      if (!log || log.status === "skipped") return;
+      if (log.status === "ate_out") {
+        acc.kcal += Number(log.kcal) || 0;
+        acc.protein += Number(log.protein) || 0;
+        acc.carbs += Number(log.carbs) || 0;
+        acc.fat += Number(log.fat) || 0;
+        return;
+      }
+      const mac = analyseDay([m], allIngredients);
+      acc.kcal += mac.kcal; acc.protein += mac.protein; acc.carbs += mac.carbs;
+      acc.fat += mac.fat; acc.fibre += mac.fibre; acc.potassium += mac.potassium;
+    });
+    return acc;
+  })();
 
   return (
     <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif" }}>
@@ -479,11 +542,16 @@ export default function App() {
 
             {tab === "plan" && activeWeek && day && (
               <>
-                {history.length > 1 && (
+                {(
                   <div className="flex items-center flex-wrap" style={{ gap: 8, marginBottom: 20 }}>
-                    <span style={{ fontSize: 13, color: t.soft }}>Week:</span>
+                    <span style={{ fontSize: 13, color: t.soft }}>
+                      {history.length > 1 ? `Plans (${history.length}):` : "Plan:"}
+                    </span>
                     <button onClick={() => setViewingHistory(null)}
-                      style={{ background: !viewingHistory ? t.peri : t.card, color: !viewingHistory ? t.bg : t.soft, border: `1px solid ${!viewingHistory ? t.peri : t.line}`, borderRadius: 9, padding: "6px 13px", fontSize: 13, fontWeight: 600 }}>This week</button>
+                      style={{ background: !viewingHistory ? t.peri : t.card, color: !viewingHistory ? t.bg : t.soft, border: `1px solid ${!viewingHistory ? t.peri : t.line}`, borderRadius: 9, padding: "6px 13px", fontSize: 13, fontWeight: 600 }}>Current</button>
+                    {history.length <= 1 && (
+                      <span style={{ fontSize: 12.5, color: t.dim }}>older plans appear here once you generate a new one</span>
+                    )}
                     {history.slice(1, 7).map((h, i) => {
                       const on = viewingHistory?.id === h.id;
                       const when = h.created_at ? new Date(h.created_at) : new Date(h.week_start);
@@ -519,22 +587,31 @@ export default function App() {
 
                 {dayMacros && (
                   <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 18, padding: "24px 26px", marginBottom: 26 }}>
+                    <div className="flex justify-between items-baseline flex-wrap" style={{ gap: 10, marginBottom: 18 }}>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>Eaten so far today</div>
+                      <div style={{ fontSize: 13, color: t.dim }}>
+                        if you eat the whole plan: {dayMacros.kcal} kcal · {dayMacros.protein}g protein
+                      </div>
+                    </div>
                     <div className="flex flex-wrap" style={{ gap: 24, marginBottom: 20 }}>
-                      <MacroBar label="Calories" value={dayMacros.kcal} target={targets.targetKcal} unit="" color={t.amber} />
-                      <MacroBar label="Protein" value={dayMacros.protein} target={targets.protein} unit="g" color={t.coral} />
-                      <MacroBar label="Carbs" value={dayMacros.carbs} target={targets.carbs} unit="g" color={t.peri} />
+                      <MacroBar label="Calories" value={consumed.kcal} target={targets.targetKcal} unit="" color={t.amber} />
+                      <MacroBar label="Protein" value={consumed.protein} target={targets.protein} unit="g" color={t.coral} />
+                      <MacroBar label="Carbs" value={consumed.carbs} target={targets.carbs} unit="g" color={t.peri} />
                     </div>
                     <div className="flex flex-wrap" style={{ gap: 24 }}>
-                      <MacroBar label="Fat" value={dayMacros.fat} target={targets.fat} unit="g" color={t.violet} />
-                      <MacroBar label="Fibre" value={dayMacros.fibre} target={targets.fiber} unit="g" color={t.teal} />
-                      <MacroBar label="Potassium" value={dayMacros.potassium} target={targets.potassium} unit="mg" color={t.teal} />
+                      <MacroBar label="Fat" value={consumed.fat} target={targets.fat} unit="g" color={t.violet} />
+                      <MacroBar label="Fibre" value={consumed.fibre} target={targets.fiber} unit="g" color={t.teal} />
+                      <MacroBar label="Potassium" value={consumed.potassium} target={targets.potassium} unit="mg" color={t.teal} />
+                    </div>
+                    <div style={{ fontSize: 12.5, color: t.dim, marginTop: 16 }}>
+                      Tick a meal to add it here. Nothing counts until you log it.
                     </div>
                   </div>
                 )}
 
                 <div className="space-y-2.5">
                   {day.meals.map((m, i) => (
-                    <MealCard key={i} meal={m} status={dayStatus(m.slot)} onOpen={setOpenMeal} onMark={viewingHistory ? () => flash("Switch to the current plan to log meals") : mark} />
+                    <MealCard key={i} meal={m} status={dayStatus(m.slot)} log={dayLog(m.slot)} onOpen={setOpenMeal} onMark={viewingHistory ? () => flash("Switch to the current plan to log meals") : mark} />
                   ))}
                 </div>
               </>

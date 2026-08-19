@@ -101,3 +101,7 @@ create table if not exists have_enough (
 
 -- Allow multiple plan versions per week so old ones stay browsable
 alter table weeks drop constraint if exists weeks_week_start_key;
+
+-- Store estimated carbs/fat for meals eaten out
+alter table meal_logs add column if not exists carbs numeric;
+alter table meal_logs add column if not exists fat numeric;

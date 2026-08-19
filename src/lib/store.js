@@ -41,23 +41,27 @@ export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
 
 export async function saveWeek(weekStart, plan, targets, budgetCap) {
   if (!supabase) {
-    memory.weeks = [{ week_start: weekStart, plan, targets, budget_cap: budgetCap }];
+    if (memory.weeks.length) memory.weeks[0] = { ...memory.weeks[0], plan };
+    else memory.weeks = [{ week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() }];
     return memory.weeks[0];
   }
-  const { data, error } = await supabase
-    .from("weeks")
-    .upsert({ week_start: weekStart, plan, targets, budget_cap: budgetCap }, { onConflict: "week_start" })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  const existing = await getWeek(weekStart);
+  if (existing?.id) {
+    const { data, error } = await supabase.from("weeks").update({ plan }).eq("id", existing.id).select().single();
+    if (error) throw error;
+    return data;
+  }
+  return saveWeekVersion(weekStart, plan, targets, budgetCap);
 }
 
 export async function getWeek(weekStart) {
   if (!supabase) return memory.weeks.find((w) => w.week_start === weekStart) || null;
-  const { data, error } = await supabase.from("weeks").select("*").eq("week_start", weekStart).maybeSingle();
+  // There can be several saved plans for one week — take the most recent.
+  const { data, error } = await supabase
+    .from("weeks").select("*").eq("week_start", weekStart)
+    .order("created_at", { ascending: false }).limit(1);
   if (error) throw error;
-  return data;
+  return data?.[0] || null;
 }
 
 export async function listWeeks(limit = 20) {
@@ -70,8 +74,8 @@ export async function listWeeks(limit = 20) {
 }
 
 // ---------- Meal logs ----------
-export async function logMeal({ date, slot, status, mealName, kcal, protein, note }) {
-  const row = { log_date: date, slot, status, meal_name: mealName, kcal, protein, note };
+export async function logMeal({ date, slot, status, mealName, kcal, protein, carbs, fat, note }) {
+  const row = { log_date: date, slot, status, meal_name: mealName, kcal, protein, carbs, fat, note };
   if (!supabase) {
     memory.logs = memory.logs.filter((l) => !(l.log_date === date && l.slot === slot)).concat(row);
     return row;
