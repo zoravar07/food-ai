@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { calculateTargets, sampleProfile, analyseDay } from "./lib/macroEngine.js";
 import { generateWeek, templates } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
-import { allIngredients } from "./lib/foodDatabase.js";
+import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
@@ -72,11 +72,17 @@ function MealDetail({ meal, onClose }) {
             {(meal.items || []).map(([id, qty], i) => {
               const ing = allIngredients.find((x) => x.id === id);
               if (!ing) return null;
-              const perUnit = ing.unit === "each" || ing.unit === "scoop";
+              const mm = macrosFor(id, qty);
               return (
-                <div key={i} className="flex justify-between" style={{ padding: "11px 0", borderBottom: i < meal.items.length - 1 ? `1px solid ${t.line}` : "none", fontSize: 14.5 }}>
-                  <span>{ing.name}</span>
-                  <span style={{ fontFamily: "'JetBrains Mono',monospace", color: t.soft }}>{qty}{perUnit ? "" : "g"}</span>
+                <div key={i} className="flex justify-between items-baseline" style={{ padding: "12px 0", borderBottom: i < meal.items.length - 1 ? `1px solid ${t.line}` : "none", gap: 14 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600 }}>{kitchenAmount(id, qty)}</div>
+                    <div style={{ fontSize: 13, color: t.soft, marginTop: 1 }}>{ing.name}</div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13.5 }}>{mm.kcal} kcal</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12.5, color: t.coral }}>{mm.protein}g protein</div>
+                  </div>
                 </div>
               );
             })}
@@ -173,7 +179,8 @@ export default function App() {
       const saved = await store.getWeek(store.currentWeekStart());
       if (saved?.plan) { setWeek(saved.plan); refreshGrocery(saved.plan); }
       else await makeWeek();
-      setHistory(await store.listWeeks());
+      try { setHistory(await store.listWeeks()); }
+      catch (e) { console.error("listWeeks failed:", e); flash("Couldn't load plan history"); }
       setCustom(await store.getCustomItems());
       const he = await store.getHaveEnough();
       setHaveEnoughState(he.map((h) => h.ingredient_id));
@@ -214,7 +221,10 @@ export default function App() {
     try {
       await store.saveWeekVersion(store.currentWeekStart(), plan, targets, 65);
       setHistory(await store.listWeeks());
-    } catch {}
+    } catch (e) {
+      console.error("saving plan failed:", e);
+      flash("Plan generated but not saved — check Supabase setup");
+    }
     setBusy(false); flash("New plan generated — old ones are still in history");
   }
 

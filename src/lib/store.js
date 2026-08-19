@@ -26,17 +26,36 @@ export const currentWeekStart = mondayOf;
 // A week is identified by its start date, but you can generate several plans for
 // the same week. Each new one is stored with a version so the old one survives.
 export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
-  const stamped = { ...plan };
   if (!supabase) {
-    memory.weeks.unshift({ week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() });
+    memory.weeks.unshift({ id: crypto.randomUUID(), week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() });
     return memory.weeks[0];
   }
+
   const { data, error } = await supabase
     .from("weeks")
     .insert({ week_start: weekStart, plan, targets, budget_cap: budgetCap })
     .select().single();
-  if (error) throw error;
-  return data;
+
+  if (!error) return data;
+
+  // 23505 = unique violation: the old one-plan-per-week constraint is still in
+  // place. Rather than silently overwriting (which is what made history vanish),
+  // archive the existing plan under a shifted date so both remain browsable.
+  if (error.code === "23505") {
+    const existing = await getWeek(weekStart);
+    if (existing?.id) {
+      const archiveDate = new Date(weekStart);
+      archiveDate.setDate(archiveDate.getDate() - Math.ceil(Math.random() * 3000));
+      await supabase.from("weeks").update({ week_start: archiveDate.toISOString().slice(0, 10) }).eq("id", existing.id);
+    }
+    const retry = await supabase
+      .from("weeks")
+      .insert({ week_start: weekStart, plan, targets, budget_cap: budgetCap })
+      .select().single();
+    if (retry.error) throw retry.error;
+    return retry.data;
+  }
+  throw error;
 }
 
 export async function saveWeek(weekStart, plan, targets, budgetCap) {

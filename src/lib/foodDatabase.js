@@ -19,7 +19,7 @@ export const pantry = [
   { id: "breadcrumbs", name: "Breadcrumbs / panko", kcal: 395, protein: 13, carbs: 72, fat: 5, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
   { id: "flour", name: "Plain flour", kcal: 364, protein: 10, carbs: 76, fat: 1, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
   { id: "cheese", name: "Cheddar cheese", kcal: 402, protein: 25, carbs: 1.3, fat: 33, storageDays: { fridge: 21, freezer: 180 } },
-  { id: "tortilla", name: "Flour tortilla", kcal: 289, protein: 8, carbs: 48, fat: 7, storageDays: { fridge: 10, freezer: 90 } },
+  { id: "tortilla", name: "Flour tortilla", kcal: 289, protein: 8, carbs: 48, fat: 7, unit: "each", kcalPerUnit: 145, proteinPerUnit: 4, storageDays: { fridge: 10, freezer: 90 } },
 ];
 
 export const carbs = [
@@ -27,7 +27,7 @@ export const carbs = [
   { id: "potato", name: "Potato", kcal: 87, protein: 2, carbs: 20, fat: 0.1, fibre: 2.2, potassium: 425, storageDays: { fridge: 21, freezer: 0 } },
   { id: "sweet_potato", name: "Sweet potato", kcal: 86, protein: 1.6, carbs: 20, fat: 0.1, fibre: 3, potassium: 337, storageDays: { fridge: 14, freezer: 0 } },
   { id: "pasta", name: "Pasta", kcal: 131, protein: 5, carbs: 25, fat: 1.1, fibre: 1.8, potassium: 44, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 730 },
-  { id: "pita", name: "Pita / flatbread", kcal: 275, protein: 9, carbs: 55, fat: 1.2, storageDays: { fridge: 5, freezer: 90 } },
+  { id: "pita", name: "Pita / flatbread", kcal: 275, protein: 9, carbs: 55, fat: 1.2, unit: "each", kcalPerUnit: 165, proteinPerUnit: 5.5, storageDays: { fridge: 5, freezer: 90 } },
   { id: "sourdough", name: "Sourdough", kcal: 289, protein: 9, carbs: 56, fat: 2, fibre: 2.4, potassium: 100, storageDays: { fridge: 5, freezer: 90 } },
   { id: "oats", name: "Oats", kcal: 389, protein: 17, carbs: 66, fat: 7, fibre: 10, potassium: 429, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
   { id: "rice_noodles", name: "Rice noodles", kcal: 109, protein: 1.8, carbs: 25, fat: 0.2, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
@@ -244,4 +244,102 @@ export function estimateItemCost(id, qty) {
   if (!ing || id === "whey") return 0;
   if (ing.unit === "each") return (priceEach[id] || 0) * qty;
   return ((pricePer100g[id] || 0.3) * qty) / 100;
+}
+
+// Turn a gram amount into something you can actually measure in a kitchen.
+// Nobody weighs out 47g of oats — they use a cup. Nobody weighs cheese slices.
+export const kitchenUnits = {
+  oats:            { per: 90,  one: "cup", half: true },
+  rice:            { per: 185, one: "cup", half: true },
+  pasta:           { per: 100, one: "serving", half: true },
+  milk:            { per: 240, one: "cup", half: true },
+  greek_yoghurt:   { per: 245, one: "cup", half: true },
+  coconut_water:   { per: 240, one: "cup", half: true },
+  peanut_butter_g: { per: 16,  one: "tbsp" },
+  olive_oil_g:     { per: 14,  one: "tbsp" },
+  sesame_oil_g:    { per: 14,  one: "tbsp" },
+  breadcrumbs:     { per: 108, one: "cup", half: true },
+  flour:           { per: 125, one: "cup", half: true },
+  cheese:          { per: 20,  one: "slice" },
+  feta:            { per: 30,  one: "chunk" },
+  banana:          { per: 118, one: "banana" },
+  apple:           { per: 182, one: "apple" },
+  avocado:         { per: 150, one: "avocado", half: true },
+  cucumber:        { per: 300, one: "cucumber", half: true },
+  zucchini:        { per: 200, one: "courgette", half: true },
+  peppers:         { per: 160, one: "pepper", half: true },
+  sweet_potato:    { per: 250, one: "sweet potato", half: true },
+  potato:          { per: 213, one: "potato", half: true },
+  berries:         { per: 145, one: "cup", half: true },
+  mango:           { per: 165, one: "cup" },
+  watermelon:      { per: 152, one: "cup" },
+  spinach:         { per: 30,  one: "handful" },
+  broccoli:        { per: 91,  one: "cup of florets", half: true },
+  asparagus:       { per: 134, one: "bunch", half: true },
+  cherry_tomato:   { per: 149, one: "cup", half: true },
+  mushroom:        { per: 70,  one: "cup sliced", half: true },
+  celery:          { per: 40,  one: "stick" },
+  edamame:         { per: 155, one: "cup", half: true },
+  sourdough:       { per: 45,  one: "slice" },
+  chicken_breast:  { per: 175, one: "breast", half: true },
+  chicken_thigh:   { per: 100, one: "thigh", half: true },
+  salmon:          { per: 170, one: "fillet", half: true },
+  steak:           { per: 225, one: "steak", half: true },
+  beef_mince_5:    { per: 450, one: "pack", half: true },
+  pork_tenderloin: { per: 200, one: "portion", half: true },
+};
+
+/** "180g chicken breast" -> "1 breast (180g)". Keeps grams as a secondary hint. */
+export function kitchenAmount(id, qty) {
+  const ing = allIngredients.find((x) => x.id === id);
+  if (!ing) return `${qty}`;
+  if (ing.unit === "each") {
+    const noun = id === "eggs" ? (qty === 1 ? "egg" : "eggs")
+      : id === "tortilla" ? (qty === 1 ? "tortilla" : "tortillas")
+      : id === "pita" ? (qty === 1 ? "pita" : "pitas")
+      : id === "tuna_tin" ? (qty === 1 ? "tin of tuna" : "tins of tuna") : "";
+    return noun ? `${qty} ${noun}` : `${qty}`;
+  }
+  if (ing.unit === "scoop") return qty === 1 ? "1 scoop" : `${qty} scoops`;
+
+  const k = kitchenUnits[id];
+  if (!k) return `${qty}g`;
+
+  const raw = qty / k.per;
+  let count;
+  if (k.half) {
+    count = Math.round(raw * 2) / 2; // nearest half
+    if (count < 0.5) count = 0.5;
+  } else {
+    count = Math.max(1, Math.round(raw));
+  }
+
+  const label = count <= 1 ? k.one : pluralise(k.one); // ½ cup, not ½ cups
+  const nice = count === 0.5 ? "½" : Number.isInteger(count) ? String(count) : String(count).replace(".5", "½");
+  return `${nice} ${label} (${qty}g)`;
+}
+
+function pluralise(word) {
+  const map = {
+    "cup": "cups", "tbsp": "tbsp", "slice": "slices", "banana": "bananas",
+    "apple": "apples", "avocado": "avocados", "cucumber": "cucumbers",
+    "courgette": "courgettes", "pepper": "peppers", "sweet potato": "sweet potatoes",
+    "potato": "potatoes", "handful": "handfuls", "cup of florets": "cups of florets",
+    "bunch": "bunches", "cup sliced": "cups sliced", "stick": "sticks",
+    "breast": "breasts", "thigh": "thighs", "fillet": "fillets", "steak": "steaks",
+    "pack": "packs", "portion": "portions", "serving": "servings", "chunk": "chunks",
+  };
+  return map[word] || `${word}s`;
+}
+
+/** Macros for a given ingredient quantity — used to show them per line in a recipe. */
+export function macrosFor(id, qty) {
+  const ing = allIngredients.find((x) => x.id === id);
+  if (!ing) return { kcal: 0, protein: 0 };
+  const perUnit = ing.unit === "each" || ing.unit === "scoop";
+  const f = perUnit ? qty : qty / 100;
+  return {
+    kcal: Math.round((perUnit ? (ing.kcalPerUnit ?? ing.kcal) : ing.kcal) * f),
+    protein: Math.round((perUnit ? (ing.proteinPerUnit ?? ing.protein) : ing.protein) * f),
+  };
 }
