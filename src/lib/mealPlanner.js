@@ -197,7 +197,7 @@ function buildDayMeals(b, l, s, d, targets) {
 // After the week is built, if it costs more than the budget, repeatedly swap the
 // single priciest lunch/dinner for the cheapest available alternative in that slot
 // until the whole week's grocery total fits — or we run out of cheaper options.
-function enforceBudget(week, targets, budgetCap, maxSwaps = 20) {
+function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
   let current = week;
   for (let i = 0; i < maxSwaps; i++) {
     const grocery = buildGroceryList(current);
@@ -208,6 +208,8 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20) {
     current.forEach((day, dayIdx) => {
       day.meals.forEach((meal) => {
         if (meal.slot !== "Lunch" && meal.slot !== "Dinner") return;
+        // Never swap out a meal the user pinned via a standing rule.
+        if (pins.some((p) => p.day === day.day && p.slot === meal.slot)) return;
         const cost = templateCost(meal.items);
         if (!worst || cost > worst.cost) worst = { dayIdx, cost, slot: meal.slot, currentId: meal.id };
       });
@@ -257,10 +259,11 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20) {
  * @param {{targetKcal:number, protein:number}} targets
  * @param {number} budgetCap - weekly grocery budget ceiling in £
  */
-function generateCandidateWeek(targets, budgetCap = 65) {
+function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
+  const { pins = [], favour = [], excludeIds = [] } = options;
   const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set() };
   const expensiveCount = {};
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   const openedProteins = new Set();
   const rawWeek = days.map((day) => {
@@ -275,7 +278,20 @@ function generateCandidateWeek(targets, budgetCap = 65) {
         if (WEEKLY_CAP[id]) expensiveCount[id] = (expensiveCount[id] || 0) + 1;
       });
     });
-    const { meals, totals } = buildDayMeals(b, l, s, d, targets);
+    // Standing rules pin a specific meal to a day/slot before costing, so the
+    // budget logic compensates elsewhere rather than fighting the rule later.
+    const pinFor = (slot) => {
+      const pin = pins.find((p) => p.day === day && p.slot === slot);
+      if (!pin) return null;
+      const list = templates[slot.toLowerCase()] || [];
+      return list.find((x) => x.id === pin.templateId) || null;
+    };
+    const bb = pinFor("Breakfast") || b;
+    const ll = pinFor("Lunch") || l;
+    const ss = pinFor("Snack") || s;
+    const dd = pinFor("Dinner") || d;
+
+    const { meals, totals } = buildDayMeals(bb, ll, ss, dd, targets);
     return { day, meals, totals };
   });
 
@@ -354,6 +370,34 @@ function generateCandidateWeek(targets, budgetCap = 65) {
     });
   }
 
+  // Re-assert pins after budget swaps (which may have replaced them), then let
+  // the top-up and trim passes below run normally over the result.
+  if (pins.length) {
+    planned = planned.map((day) => {
+      const relevant = pins.filter((p) => p.day === day.day);
+      if (!relevant.length) return day;
+
+      let meals = day.meals;
+      relevant.forEach((pin) => {
+        const list = templates[pin.slot.toLowerCase()] || [];
+        const tpl = list.find((x) => x.id === pin.templateId);
+        if (!tpl) return;
+        // Build the pinned meal with the same scaling the others got.
+        const built = buildDayMeals(
+          pin.slot === "Breakfast" ? tpl : meals.find((m) => m.slot === "Breakfast"),
+          pin.slot === "Lunch" ? tpl : meals.find((m) => m.slot === "Lunch"),
+          pin.slot === "Snack" ? tpl : meals.find((m) => m.slot === "Snack"),
+          pin.slot === "Dinner" ? tpl : meals.find((m) => m.slot === "Dinner"),
+          targets
+        );
+        meals = built.meals;
+      });
+
+      const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
+      return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+    });
+  }
+
   return planned;
 }
 
@@ -362,7 +406,7 @@ function generateCandidateWeek(targets, budgetCap = 65) {
  * Scores a candidate week: budget compliance first, then macro accuracy, then variety.
  * Lower is better.
  */
-function scoreWeek(week, targets, budgetCap) {
+function scoreWeek(week, targets, budgetCap, favour = []) {
   const cost = buildGroceryList(week).estimatedTotal;
   let score = 0;
 
@@ -389,6 +433,14 @@ function scoreWeek(week, targets, budgetCap) {
     Object.values(counts).forEach((c) => { if (c > 1) score += (c - 1) * 12; });
   });
 
+  // Reward meals the user has asked for (cravings / standing preferences)
+  if (favour.length) {
+    week.forEach((d) => d.meals.forEach((m) => {
+      if (favour.includes(m.id)) score -= 30;
+      if (m.cuisine && favour.includes(`cuisine:${m.cuisine}`)) score -= 20;
+    }));
+  }
+
   return score;
 }
 
@@ -400,14 +452,64 @@ function scoreWeek(week, targets, budgetCap) {
  * @param {number} budgetCap weekly grocery budget in £
  * @param {number} attempts how many candidates to evaluate
  */
-export function generateWeek(targets, budgetCap = 65, attempts = 60) {
+/**
+ * Interpret standing rules and cravings into planner constraints.
+ * Rules are free text, so we match loosely on meal names, cuisines and days.
+ */
+export function interpretRules(rules = []) {
+  const pins = [];      // { day, slot, templateId }
+  const favour = [];    // cuisine or template ids to prefer
+  const avoid = [];     // ingredient ids to avoid
+
+  const DAY_WORDS = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
+  const SLOT_WORDS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
+  const allTemplates = Object.entries(templates).flatMap(([slot, list]) => list.map((t) => ({ ...t, slot })));
+
+  rules.forEach((r) => {
+    const text = (r.text || "").toLowerCase();
+
+    // Which meal is being referred to? Match on word STEMS so that "a burger"
+    // matches "Homemade burgers & wedges", and "taco" matches "Beef mince tacos".
+    const stem = (w) => w.replace(/(ies|es|s)$/, "");
+    const textStems = text.split(/[^a-z]+/).filter((w) => w.length > 2).map(stem);
+
+    let bestMatch = null, bestScore = 0;
+    allTemplates.forEach((tpl) => {
+      const words = tpl.name.toLowerCase().split(/[^a-z]+/).filter((w) => w.length > 2).map(stem);
+      const hits = words.filter((w) => textStems.includes(w)).length;
+      if (hits > bestScore) { bestScore = hits; bestMatch = tpl; }
+    });
+    const match = bestScore > 0 ? bestMatch : null;
+
+    const day = Object.entries(DAY_WORDS).find(([k]) => text.includes(k))?.[1];
+    const slot = Object.entries(SLOT_WORDS).find(([k]) => text.includes(k))?.[1]
+      || (match ? match.slot.charAt(0).toUpperCase() + match.slot.slice(1) : null);
+
+    if (match && day && slot) pins.push({ day, slot, templateId: match.id });
+    else if (match) favour.push(match.id);
+
+    // Cuisine preference
+    ["mexican", "indian", "japanese", "chinese", "italian", "american", "middle_eastern", "british"].forEach((c) => {
+      if (text.includes(c.replace("_", " ")) || text.includes(c)) favour.push(`cuisine:${c}`);
+    });
+  });
+
+  return { pins, favour, avoid };
+}
+
+export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {}) {
+  // Pins narrow the search space, so allow more tries to find an affordable fit.
+  if (options.pins?.length) attempts = Math.max(attempts, 120);
   let best = null, bestScore = Infinity;
   let bestCompliant = null, bestCompliantScore = Infinity;
 
   for (let i = 0; i < attempts; i++) {
-    const candidate = generateCandidateWeek(targets, budgetCap);
+    const candidate = generateCandidateWeek(targets, budgetCap, options);
+    // Cost the candidate as it will actually be shopped for — pins already
+    // applied inside generateCandidateWeek — so we never accept a week that
+    // only looks affordable before the user's rules are honoured.
     const cost = buildGroceryList(candidate).estimatedTotal;
-    const sc = scoreWeek(candidate, targets, budgetCap);
+    const sc = scoreWeek(candidate, targets, budgetCap, options.favour || []);
 
     if (sc < bestScore) { bestScore = sc; best = candidate; }
     if (cost <= budgetCap && sc < bestCompliantScore) {

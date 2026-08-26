@@ -13,7 +13,13 @@
  * @param {"maintain"|"mild_cut"|"cut"|"recomp"} profile.goal
  */
 export function calculateTargets(profile) {
-  const { age, heightCm, weightKg, sex, trainingDaysPerWeek, goal } = profile;
+  // Accept both the stored profile (snake_case) and the legacy shape.
+  const age = profile.age;
+  const heightCm = profile.heightCm ?? profile.height_cm;
+  const weightKg = profile.weightKg ?? profile.weight_kg;
+  const sex = profile.sex;
+  const trainingDaysPerWeek = profile.trainingDaysPerWeek ?? profile.training_days;
+  const goal = profile.goal;
 
   // Mifflin-St Jeor BMR
   const bmr =

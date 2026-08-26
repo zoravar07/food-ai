@@ -105,3 +105,33 @@ alter table weeks drop constraint if exists weeks_week_start_key;
 -- Store estimated carbs/fat for meals eaten out
 alter table meal_logs add column if not exists carbs numeric;
 alter table meal_logs add column if not exists fat numeric;
+
+-- ============ v2: profile, pantry, rules ============
+
+-- Editable profile (replaces the hardcoded sampleProfile)
+create table if not exists profile (
+  id int primary key default 1,
+  age int, height_cm numeric, weight_kg numeric, sex text,
+  training_days int, goal text, budget_cap numeric,
+  meals_per_day int default 4, max_cook_minutes int default 30,
+  dislikes text[], notes text,
+  updated_at timestamptz default now()
+);
+
+insert into profile (id, age, height_cm, weight_kg, sex, training_days, goal, budget_cap, dislikes)
+select 1, 19, 185, 72.5, 'male', 5, 'mild_cut', 65, array['corn']
+where not exists (select 1 from profile where id = 1);
+
+-- Pantry v2: countable amounts, category, low flag
+alter table pantry add column if not exists category text default 'fresh';
+alter table pantry add column if not exists low boolean default false;
+alter table pantry add column if not exists display text;
+
+-- Standing rules ("burger on Fridays") and one-off cravings ("Thai this week")
+create table if not exists rules (
+  id uuid primary key default gen_random_uuid(),
+  kind text not null default 'standing',   -- standing | craving
+  text text not null,
+  active boolean default true,
+  created_at timestamptz default now()
+);

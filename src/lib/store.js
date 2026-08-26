@@ -11,7 +11,7 @@ export const isConfigured = Boolean(url && key);
 export const supabase = isConfigured ? createClient(url, key) : null;
 
 // In-memory fallback so the UI works before Supabase is wired up
-const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [] };
+const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [], rules: [], profile: null };
 
 function mondayOf(date = new Date()) {
   const d = new Date(date);
@@ -21,6 +21,67 @@ function mondayOf(date = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 export const currentWeekStart = mondayOf;
+
+// ---------- Profile (editable settings) ----------
+export const DEFAULT_PROFILE = {
+  age: 19, height_cm: 185, weight_kg: 72.5, sex: "male",
+  training_days: 5, goal: "mild_cut", budget_cap: 65,
+  meals_per_day: 4, max_cook_minutes: 30, dislikes: ["corn"], notes: "",
+};
+
+export async function getProfile() {
+  if (!supabase) return memory.profile || DEFAULT_PROFILE;
+  const { data, error } = await supabase.from("profile").select("*").eq("id", 1).maybeSingle();
+  if (error) throw error;
+  return data || DEFAULT_PROFILE;
+}
+
+export async function saveProfile(fields) {
+  if (!supabase) { memory.profile = { ...(memory.profile || DEFAULT_PROFILE), ...fields }; return memory.profile; }
+  const { data, error } = await supabase
+    .from("profile").upsert({ id: 1, ...fields, updated_at: new Date().toISOString() }, { onConflict: "id" })
+    .select().single();
+  if (error) throw error;
+  return data;
+}
+
+// ---------- Rules & cravings ----------
+export async function getRules() {
+  if (!supabase) return memory.rules || [];
+  const { data, error } = await supabase.from("rules").select("*").eq("active", true).order("created_at");
+  if (error) throw error;
+  return data || [];
+}
+
+export async function addRule(text, kind = "standing") {
+  const row = { text, kind, active: true };
+  if (!supabase) { memory.rules = [...(memory.rules || []), { ...row, id: crypto.randomUUID() }]; return row; }
+  const { data, error } = await supabase.from("rules").insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeRule(id) {
+  if (!supabase) { memory.rules = (memory.rules || []).filter((r) => r.id !== id); return; }
+  const { error } = await supabase.from("rules").delete().eq("id", id);
+  if (error) throw error;
+}
+
+/** Remove a rule by fuzzy text match — lets the AI say "drop the Friday burger thing". */
+export async function removeRuleByText(fragment) {
+  const rules = await getRules();
+  const frag = fragment.toLowerCase();
+  const hit = rules.find((r) => r.text.toLowerCase().includes(frag) || frag.includes(r.text.toLowerCase()));
+  if (hit) { await removeRule(hit.id); return hit; }
+  return null;
+}
+
+/** Cravings expire once a plan has been generated with them. */
+export async function clearCravings() {
+  if (!supabase) { memory.rules = (memory.rules || []).filter((r) => r.kind !== "craving"); return; }
+  const { error } = await supabase.from("rules").delete().eq("kind", "craving");
+  if (error) throw error;
+}
 
 // ---------- Weeks ----------
 // A week is identified by its start date, but you can generate several plans for
@@ -137,8 +198,8 @@ export async function getPantry() {
   return data || [];
 }
 
-export async function setPantryItem(ingredientId, name, quantity, unit = "g") {
-  const row = { ingredient_id: ingredientId, name, quantity, unit, updated_at: new Date().toISOString() };
+export async function setPantryItem(ingredientId, name, quantity, unit = "g", extra = {}) {
+  const row = { ingredient_id: ingredientId, name, quantity, unit, ...extra, updated_at: new Date().toISOString() };
   if (!supabase) {
     memory.pantry = memory.pantry.filter((p) => p.ingredient_id !== ingredientId).concat(row);
     return row;
@@ -152,7 +213,7 @@ export async function setPantryItem(ingredientId, name, quantity, unit = "g") {
 export async function getLeftovers() {
   const rows = await getPantry();
   return rows.reduce((acc, r) => {
-    if (r.quantity > 0) acc[r.ingredient_id] = Number(r.quantity);
+    if (Number(r.quantity) > 0 && !r.low) acc[r.ingredient_id] = Number(r.quantity);
     return acc;
   }, {});
 }
@@ -160,17 +221,38 @@ export async function getLeftovers() {
 /** After a shop, record what was bought so next week nets it off */
 export async function stockPantryFromShop(items) {
   for (const it of items) {
-    await setPantryItem(it.id, it.name, it.toBuy, it.unit);
+    const category = it.longLife ? "cupboard" : "fresh";
+    const existing = (await getPantry()).find((p) => p.ingredient_id === it.id);
+    const qty = (Number(existing?.quantity) || 0) + (it.buyGrams || 0);
+    await setPantryItem(it.id, it.name, qty, "g", { category, low: false, display: it.display });
   }
 }
 
+export async function markPantry(ingredientId, state) {
+  const rows = await getPantry();
+  const row = rows.find((p) => p.ingredient_id === ingredientId);
+  if (!row) return;
+  if (state === "out") await setPantryItem(ingredientId, row.name, 0, row.unit, { low: false, category: row.category });
+  if (state === "low") await setPantryItem(ingredientId, row.name, row.quantity, row.unit, { low: true, category: row.category });
+  if (state === "plenty") await setPantryItem(ingredientId, row.name, Math.max(row.quantity, 1), row.unit, { low: false, category: row.category });
+}
+
+export async function removePantryItem(ingredientId) {
+  if (!supabase) { memory.pantry = memory.pantry.filter((p) => p.ingredient_id !== ingredientId); return; }
+  const { error } = await supabase.from("pantry").delete().eq("ingredient_id", ingredientId);
+  if (error) throw error;
+}
+
 /** Deduct what a cooked meal used */
+/** Deduct what a cooked meal used. Fresh items only — tracking how much cumin
+ *  is left is not worth anyone's time, so cupboard staples are left alone. */
 export async function consumeIngredients(items) {
   const pantry = await getPantry();
   for (const [id, qty] of items) {
     const row = pantry.find((p) => p.ingredient_id === id);
-    if (!row) continue;
-    await setPantryItem(id, row.name, Math.max(0, Number(row.quantity) - qty), row.unit);
+    if (!row || row.category === "cupboard") continue;
+    const next = Math.max(0, Number(row.quantity) - qty);
+    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: next > 0 && next < qty });
   }
 }
 

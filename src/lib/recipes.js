@@ -3,9 +3,9 @@ export const recipes = {
   greek_bowl: {
     blurb: "Thirty seconds of effort, 40g of protein. The oats stirred in make it filling enough to actually last until lunch.",
     steps: [
-      "Spoon the yoghurt into a bowl.",
-      "Stir the oats straight in — they soften in a couple of minutes and stop it feeling like just yoghurt.",
-      "Pile the berries on top. If they're frozen, microwave them 30 seconds first and let the juice run into the yoghurt.",
+      "Spoon the yoghurt into a bowl — about two thirds full, leaving room to mix.",
+      "Stir the oats straight in. Leave 2 minutes and they soften into it — skip this and it just tastes like plain yoghurt.",
+      "Pile the berries on top. Frozen ones: microwave 30 seconds first, then tip the juice in too — it sweetens the whole bowl.",
       "Add a spoon of peanut butter and a drizzle of honey if you want it sweeter.",
     ],
     tip: "Make it the night before if mornings are tight — it's better after sitting, the oats go creamy.",
@@ -23,9 +23,9 @@ export const recipes = {
   protein_smoothie: {
     blurb: "Drink it on the way out the door. Oats make it a proper meal, not just a drink.",
     steps: [
-      "Put the milk in the blender first — it stops everything sticking to the bottom.",
+      "Milk into the blender first. This matters — dry stuff on the bottom jams the blades.",
       "Add banana, oats, yoghurt and peanut butter.",
-      "Blend 45 seconds until there are no oat bits left.",
+      "Blend 45 seconds. Stop when you can't see oat flecks; under-blending leaves it gritty.",
       "If it's too thick, add a splash more milk. Too thin, add more oats or half a frozen banana.",
     ],
     tip: "Freeze peeled bananas when they go spotty — makes the smoothie cold and thick without watery ice.",
@@ -42,11 +42,11 @@ export const recipes = {
   scrambled_eggs: {
     blurb: "Proper scrambled eggs take three minutes and are miles better than the rubbery version.",
     steps: [
-      "Crack the eggs into a bowl, beat with a fork, season with salt and pepper.",
+      "Crack the eggs into a bowl. Beat with a fork for about 15 seconds until the yolks and whites are fully combined and slightly frothy. Salt and pepper now.",
       "Put the toast on now — everything finishes at the same time.",
-      "Melt a knob of butter in a pan on MEDIUM-LOW heat. Low heat is the whole secret.",
-      "Pour in the eggs. Leave 20 seconds, then push them slowly around with a spatula.",
-      "Take them off the heat while they still look slightly wet — they keep cooking in the pan.",
+      "Butter in the pan on MEDIUM-LOW — about 3 out of 10 on the dial. Low heat is the whole secret; it should melt gently, not sizzle or brown.",
+      "Pour the eggs in. Leave 20 seconds untouched, then push slowly from the edges to the middle. Repeat every 15 seconds or so — slow and lazy, not frantic stirring.",
+      "Take them off while they still look slightly wet and glossy — around 2-3 minutes total. They carry on cooking in the hot pan, so if they look perfect in the pan they'll be dry on the plate.",
       "Grate cheese over, pile onto the toast.",
     ],
     tip: "High heat makes eggs squeaky and dry. If they're cooking fast, the pan's too hot.",
@@ -56,8 +56,8 @@ export const recipes = {
     steps: [
       "Toast the sourdough.",
       "Halve the avocado, scoop into a bowl, mash roughly with a fork. Add lemon, salt and chilli flakes.",
-      "Heat oil in a pan on medium-high. Crack the eggs in — they should sizzle straight away.",
-      "Fry 2-3 minutes. Spoon the hot oil over the tops to set the whites without flipping.",
+      "Oil in a pan on medium-high, about 7 out of 10. Give it a minute, then crack the eggs in — they should sizzle immediately. No sizzle means the pan is too cold and they'll go rubbery.",
+      "Fry 2-3 minutes. Tilt the pan and spoon the hot oil over the whites repeatedly — that sets the tops without flipping, so the yolks stay runny. Done when the whites are opaque and the edges are lacy and brown.",
       "Spread the avocado on the toast, slide the eggs on top, more chilli and salt.",
     ],
     tip: "Leave the avocado stone in any leftover mash and press cling film onto the surface — slows the browning.",
@@ -77,10 +77,10 @@ export const recipes = {
   shawarma_bowl: {
     blurb: "The spice mix does all the work. Charred edges are the point.",
     steps: [
-      "Toss the chicken thighs with cumin, paprika, garlic powder, salt and a squeeze of lemon. 10 minutes is enough.",
+      "Toss the thighs with cumin, paprika, garlic powder, salt and a good squeeze of lemon. 10 minutes sitting is enough to make a difference; longer is better if you have it.",
       "Get the rice on.",
-      "Heat a pan HOT. Lay the thighs in and leave them alone 5-6 minutes — moving them stops them charring.",
-      "Flip, another 5 minutes, until cooked through and dark at the edges.",
+      "Get the pan properly hot — 8 out of 10, a drop of water should skitter. Lay the thighs in and LEAVE them 5-6 minutes. Every time you move them you reset the browning.",
+      "Flip once, another 5 minutes. Done when the thickest part is white all the way through with no pink, and the edges have gone properly dark.",
       "Rest 2 minutes, slice.",
       "Build: rice, chicken, tomatoes, a big spoon of yoghurt, more lemon.",
     ],
@@ -92,7 +92,7 @@ export const recipes = {
       "Rice on first.",
       "Slice the chicken breast into strips so it cooks fast and evenly.",
       "Fry in oil on high 5-6 minutes until golden.",
-      "Add teriyaki sauce, let it bubble 1 minute until it thickens and coats everything.",
+      "Add the teriyaki and let it bubble for about a minute. It'll go from watery to glossy and cling to the chicken — that's your cue to take it off.",
       "Steam or boil the broccoli 3 minutes — it should still have bite.",
       "Serve over rice, sesame seeds if you have them.",
     ],
@@ -149,7 +149,7 @@ export const recipes = {
   loaded_potato: {
     blurb: "Cheap, huge, and hits the macros without much effort.",
     steps: [
-      "Prick the sweet potato all over, microwave 8 minutes, then 10 minutes in a hot oven or air fryer to crisp the skin.",
+      "Prick the sweet potato all over with a fork — skipping this can make it burst. Microwave 8 minutes, then 10 minutes in a hot oven or air fryer at 200C to crisp the skin up.",
       "Brown the mince with cumin, paprika and garlic.",
       "Split the potato, fluff the inside with a fork.",
       "Load with mince, grate cheese over so it melts, then a spoon of yoghurt.",
@@ -160,10 +160,10 @@ export const recipes = {
     blurb: "Crispy skin is the whole point, and it's easier than people think.",
     steps: [
       "Rice on first.",
-      "Pat the salmon skin completely dry with kitchen paper. Wet skin will never crisp.",
+      "Pat the skin bone dry with kitchen paper — press, don't wipe. Any moisture left and the skin steams instead of crisping, which is the difference between good and disappointing.",
       "Season, then lay skin-side down in a hot oiled pan. Press flat for 10 seconds so it doesn't curl.",
-      "Leave 4 minutes without touching it. The flesh will turn pale from the bottom up.",
-      "Flip, 2 minutes more. It's done when it flakes with light pressure.",
+      "Leave it 4 minutes, hands off. Watch the side of the fillet — you'll see the colour turn from translucent to pale, creeping upwards. When that line is about two thirds up, it's ready to flip.",
+      "Flip and give it 2 more minutes. Done when a fork twisted gently into the thickest part separates the flakes easily. Slightly pink in the very middle is fine and better than overcooked.",
       "Stir-fry broccoli with garlic in the same pan, splash of soy.",
     ],
     tip: "If it sticks when you try to flip it, it isn't ready. Give it another 30 seconds and it'll release itself.",
@@ -194,9 +194,9 @@ export const recipes = {
     blurb: "Better than any takeaway burger and you know exactly what's in it.",
     steps: [
       "Sweet potato into wedges, toss with oil, salt, paprika. Air fryer 20 minutes at 200C, or oven 30.",
-      "Form the mince into patties slightly wider than your bun — they shrink. Press a dent in the middle so they don't dome up.",
+      "Form patties about 1.5cm thick and slightly wider than the bun, since they shrink as they cook. Press a shallow dent in the centre with your thumb — that stops them puffing into a ball.",
       "Season the OUTSIDE only, generously.",
-      "Very hot pan, 4 minutes a side. Don't press them down, that squeezes the juice out.",
+      "Very hot pan, 4 minutes a side for medium. Never press them with the spatula — that squeezes out the fat and juice and gives you a dry burger.",
       "Cheese on top for the last minute, cover the pan to melt it.",
       "Rest 2 minutes, then build with avocado.",
     ],
@@ -231,7 +231,7 @@ export const recipes = {
       "Slice and fry the chicken until golden, 6 minutes.",
       "Add garlic and spinach, let it wilt.",
       "Save a mug of pasta water, then drain.",
-      "Take the pan OFF the heat. Stir in yoghurt and a splash of pasta water until it turns into a sauce.",
+      "Take the pan OFF the heat and wait 30 seconds. Then stir in the yoghurt with a splash of pasta water. Straight into a hot pan and it splits into grainy lumps — off the heat it goes silky.",
       "Toss the pasta through, add cheese and black pepper.",
     ],
     tip: "Off the heat before the yoghurt goes in. On the heat it splits and goes grainy.",
