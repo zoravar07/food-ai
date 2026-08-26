@@ -1,5 +1,5 @@
-// netlify/functions/chat.js
-// Server-side proxy to the Gemini API. The API key lives in a Netlify environment
+// api/chat.js
+// Server-side proxy to the Gemini API. The API key lives in a Vercel environment
 // variable and is NEVER exposed to the browser.
 //
 // Provider is swappable: change PROVIDER + the callX function and nothing else
@@ -55,15 +55,16 @@ async function callGemini(model, systemPrompt, messages) {
   return text;
 }
 
-export async function handler(event) {
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, body: JSON.stringify({ error: "Method not allowed" }) };
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
   try {
-    const { systemPrompt, messages } = JSON.parse(event.body || "{}");
+    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
+    const { systemPrompt, messages } = body;
     if (!Array.isArray(messages) || messages.length === 0) {
-      return { statusCode: 400, body: JSON.stringify({ error: "messages required" }) };
+      return res.status(400).json({ error: "messages required" });
     }
 
     let text;
@@ -78,15 +79,8 @@ export async function handler(event) {
       }
     }
 
-    return {
-      statusCode: 200,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-    };
+    return res.status(200).json({ text });
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: err.message || "Unknown error" }),
-    };
+    return res.status(500).json({ error: err.message || "Unknown error" });
   }
 }
