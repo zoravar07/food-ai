@@ -230,7 +230,7 @@ export default function App() {
     setGrocery(buildGroceryList(p, left, he));
   }
 
-  useEffect(() => { refreshGrocery(plan); /* eslint-disable-next-line */ }, [plan, haveEnough]);
+  useEffect(() => { refreshGrocery(plan); /* eslint-disable-next-line */ }, [plan, haveEnough, pantry]);
 
   async function makePlan(offset = weekOffset, prof = profile) {
     setBusy(true); setConfirmNew(false);
