@@ -14,7 +14,7 @@ const MODELS = {
 
 async function callGemini(model, systemPrompt, messages) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY is not set in Netlify environment variables");
+  if (!key) throw new Error("GEMINI_API_KEY is not set in Vercel environment variables");
 
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",

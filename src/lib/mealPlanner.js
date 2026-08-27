@@ -341,16 +341,21 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
     });
   }
   // Final top-up: close remaining calorie/protein gaps using CHEAP dense staples
-  // (rice, potato, oats, eggs) so fixing nutrition doesn't push the bill back up.
+  // (rice, potato, oats, eggs) — but never past the budget cap. Every other pass
+  // in this pipeline checks cost before acting; this one didn't, so it could add
+  // fillers that pushed the week over budget with no reliable way back — the trim
+  // pass below only touches protein anchors, which the earlier trim pass has
+  // usually already squeezed close to their floor by this point.
   const CHEAP_FILLERS = ["rice", "potato", "sweet_potato", "oats", "rice_noodles", "pita", "sourdough", "eggs"];
-  planned = planned.map((day) => {
+  let runningWeek = planned;
+  planned = planned.map((day, dayIdx) => {
     let meals = day.meals;
     for (let pass = 0; pass < 10; pass++) {
       const tot = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
       if (tot.kcal >= targets.targetKcal * 0.92 && tot.protein >= targets.protein * 0.95) break;
 
       let bumped = false;
-      meals = meals.map((m) => {
+      const nextMeals = meals.map((m) => {
         if (bumped || m.slot === "Shake" || m.slot === "Snack") return m;
         const ceiling = SLOT_KCAL_CEILING[m.slot] || 900;
         if (m.kcal >= ceiling) return m;
@@ -367,9 +372,17 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
         return { ...m, items, ...macrosForItems(items) };
       });
       if (!bumped) break;
+
+      // Would this bump push the whole week over budget? Check the real total,
+      // not just this day — only keep it if it doesn't.
+      const snapshot = runningWeek.map((d, i) => (i === dayIdx ? { ...d, meals: nextMeals } : d));
+      if (buildGroceryList(snapshot).estimatedTotal > budgetCap) break;
+      meals = nextMeals;
     }
     const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-    return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+    const result = { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+    runningWeek = runningWeek.map((d, i) => (i === dayIdx ? result : d));
+    return result;
   });
 
   // If the top-up nudged us back over budget, trim protein anchors — cutting the
@@ -556,6 +569,35 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
     }
     // Stop early once we have a good week that fits the budget.
     if (bestCompliant && bestCompliantScore < 60) break;
+  }
+
+  // Every attempt already ran the full swap-then-trim pipeline on its own candidate
+  // and still couldn't fit — but don't just hand back the best-scoring one over
+  // budget. Give it one more, harder round: trimming can change which meal is now
+  // the priciest, so a fresh swap pass can still find cuts the candidate's own
+  // build never got the chance to re-check, and a lower trim floor squeezes what's
+  // left. Never makes the week costlier, so it's always a fair swap for `best`.
+  if (!bestCompliant && best) {
+    let salvage = enforceBudget(best, targets, budgetCap, 20, options.pins || [], options.blocked || {});
+    for (let pass = 0; pass < 20; pass++) {
+      if (buildGroceryList(salvage).estimatedTotal <= budgetCap) break;
+      salvage = salvage.map((day) => {
+        const meals = day.meals.map((m) => {
+          if (!m.proteinAnchor) return m;
+          const ing = lookup(m.proteinAnchor);
+          if (ing.unit === "each" || ing.unit === "scoop") return m;
+          const unitCost = estimateItemCost(m.proteinAnchor, 100);
+          const cutRate = unitCost > 2 ? 0.85 : unitCost > 1 ? 0.9 : 0.95; // harder than the standard trim floor
+          const items = m.items.map(([id, qty]) =>
+            id === m.proteinAnchor ? [id, Math.max(100, Math.round((qty * cutRate) / 10) * 10)] : [id, qty]
+          );
+          return { ...m, items, ...macrosForItems(items) };
+        });
+        const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
+        return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+      });
+    }
+    best = salvage;
   }
 
   // Always prefer a week that fits the budget, even if another scored marginally
