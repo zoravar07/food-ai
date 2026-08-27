@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek, templates, interpretRules } from "./lib/mealPlanner.js";
+import { generateWeek, templates, interpretRules, excludeDisliked } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
@@ -235,7 +235,7 @@ export default function App() {
   async function makePlan(offset = weekOffset, prof = profile) {
     setBusy(true); setConfirmNew(false);
     const tg = calculateTargets(prof);
-    const opts = interpretRules(rules);
+    const opts = { ...interpretRules(rules), blocked: excludeDisliked(prof.dislikes || []) };
     const p = generateWeek(tg, prof.budget_cap || 65, 60, opts);
     const key = weekStartFor(offset);
     setWeeks((w) => ({ ...w, [key]: p }));
@@ -309,16 +309,20 @@ export default function App() {
     const picked = grocery.items.filter((i) => checked[i.id]);
     if (!picked.length) return flash("Nothing ticked yet");
     try {
-      await store.saveShop(iso(new Date()), picked, picked.reduce((a, i) => a + i.estCost, 0));
       await store.stockPantryFromShop(picked);
+      try { await store.saveShop(iso(new Date()), picked, picked.reduce((a, i) => a + i.estCost, 0)); } catch {}
       await loadPantry();
-    } catch {}
+    } catch (e) {
+      // Don't fail silently — an invisible error here looks like "nothing happened".
+      console.error("pantry write failed:", e);
+      return flash(`Couldn't save to pantry: ${e.message || "check Supabase setup"}`);
+    }
     setChecked({});
+    setTab("pantry");
     flash(`${picked.length} items added to your pantry`, async () => {
       for (const it of picked) await store.removePantryItem(it.id);
       loadPantry();
     });
-    setTab("pantry");
   }
 
   /* ------- chat ------- */
@@ -363,6 +367,14 @@ export default function App() {
     if (a.type === "add_rule") { try { await store.addRule(a.text, "standing"); await loadRules(); flash("Rule saved"); } catch {} return; }
     if (a.type === "add_craving") { try { await store.addRule(a.text, "craving"); await loadRules(); flash("Craving noted"); } catch {} return; }
     if (a.type === "remove_rule") { try { const r = await store.removeRuleByText(a.match || a.text || ""); await loadRules(); flash(r ? "Rule removed" : "No matching rule"); } catch {} return; }
+    if (a.type === "add_dislike" && a.item) {
+      try { const p = await store.addDislike(a.item); setProfile(p); flash(`Won't plan ${a.item} again`); } catch {}
+      return;
+    }
+    if (a.type === "remove_dislike" && a.item) {
+      try { const p = await store.removeDislike(a.item); setProfile(p); flash(`${a.item} allowed again`); } catch {}
+      return;
+    }
     if (a.type === "set_profile" && a.field) {
       const next = { ...profile, [a.field]: a.value };
       setProfile(next); setTargets(calculateTargets(next));
@@ -683,26 +695,41 @@ export default function App() {
               <Field label="Max cook time (min)" type="number" value={profile.max_cook_minutes} onSave={(v) => saveField("max_cook_minutes", +v)} />
             </Section>
 
-            <Section title="Standing rules" note="Always applied. Tell the AI to add or drop these.">
-              {rules.filter((r) => r.kind === "standing").length === 0 && <Empty>None yet. Try telling the AI "I always want a burger on Fridays".</Empty>}
-              {rules.filter((r) => r.kind === "standing").map((r) => (
-                <RuleRow key={r.id} text={r.text} onRemove={async () => { await store.removeRule(r.id); await loadRules(); flash("Rule removed"); }} />
-              ))}
+            <Section title="What you're going for" note="Describe it however you like — the AI reads this when planning.">
+              <TextBox value={profile.goal_notes || ""} placeholder="e.g. lean and athletic, V-taper, want to lose the last bit of belly and face fat while keeping my lifts going"
+                onSave={(v) => saveField("goal_notes", v)} />
             </Section>
 
-            <Section title="Cravings" note="Used for the next plan, then cleared.">
-              {rules.filter((r) => r.kind === "craving").length === 0 && <Empty>Nothing right now. Try "I fancy Thai this week".</Empty>}
-              {rules.filter((r) => r.kind === "craving").map((r) => (
-                <RuleRow key={r.id} text={r.text} onRemove={async () => { await store.removeRule(r.id); await loadRules(); flash("Craving removed"); }} />
-              ))}
-            </Section>
-
-            <Section title="Won't eat" note="Never planned.">
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+            <Section title="Won't eat" note="Never planned. Add anything you don't want to see.">
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: (profile.dislikes || []).length ? 10 : 0 }}>
                 {(profile.dislikes || []).map((d) => (
-                  <span key={d} style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 100, padding: "8px 14px", fontSize: 13.5 }}>{d}</span>
+                  <span key={d} style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 100, padding: "8px 8px 8px 14px", fontSize: 13.5, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    {d}
+                    <button onClick={async () => { const p = await store.removeDislike(d); setProfile(p); flash(`${d} allowed again`); }}
+                      style={{ background: "none", border: "none", color: t.dim, fontSize: 17, padding: "0 4px", lineHeight: 1 }}>×</button>
+                  </span>
                 ))}
               </div>
+              <QuickAdd placeholder="add something you won't eat…" onAdd={async (v) => { const p = await store.addDislike(v); setProfile(p); flash(`Won't plan ${v}`); }} />
+            </Section>
+
+            <Section title="Other rules" note="Anything you've told the AI. Remove here or just ask it to.">
+              {rules.length === 0 && <Empty>Nothing yet. Try telling the AI "I always want a burger on Fridays" or "I fancy Thai this week".</Empty>}
+              {rules.map((r) => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "13px 14px" }}>
+                  <span style={{ flex: 1, fontSize: 15 }}>{r.text}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: r.kind === "craving" ? t.amber : t.teal, textTransform: "uppercase", letterSpacing: ".05em" }}>
+                    {r.kind === "craving" ? "this week" : "always"}
+                  </span>
+                  <button onClick={async () => { await store.removeRule(r.id); await loadRules(); flash("Removed"); }}
+                    style={{ background: "none", border: "none", color: t.dim, fontSize: 20 }}>×</button>
+                </div>
+              ))}
+            </Section>
+
+            <Section title="Anything else" note="Allergies, kitchen quirks, what you're bored of — anything the AI should know.">
+              <TextBox value={profile.notes || ""} placeholder="e.g. sharing a freezer so not much space, bored of chicken breast, flatmate has a nut allergy"
+                onSave={(v) => saveField("notes", v)} />
             </Section>
           </>
         )}
@@ -780,6 +807,31 @@ function Field({ label, value, type = "text", options, onSave }) {
         <input type={type} value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
           style={{ width: 88, background: t.cardHi, color: t.text, border: `1px solid ${t.line}`, borderRadius: 10, padding: "9px 11px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace" }} />
       )}
+    </div>
+  );
+}
+
+function TextBox({ value, placeholder, onSave }) {
+  const [v, setV] = useState(value || "");
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => { setV(value || ""); setDirty(false); }, [value]);
+  return (
+    <div>
+      <textarea value={v} onChange={(e) => { setV(e.target.value); setDirty(true); }} placeholder={placeholder} rows={3}
+        style={{ width: "100%", background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "13px 14px", color: t.text, resize: "vertical", lineHeight: 1.5 }} />
+      {dirty && <Btn kind="primary" size="sm" style={{ marginTop: 8 }} onClick={() => { onSave(v); setDirty(false); }}>Save</Btn>}
+    </div>
+  );
+}
+
+function QuickAdd({ placeholder, onAdd }) {
+  const [v, setV] = useState("");
+  const go = () => { if (v.trim()) { onAdd(v.trim()); setV(""); } };
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <input value={v} onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && go()} placeholder={placeholder}
+        style={{ flex: 1, background: t.card, border: `1px solid ${t.line}`, borderRadius: 13, padding: "13px 15px", color: t.text }} />
+      <Btn kind="solid" size="md" onClick={go}>Add</Btn>
     </div>
   );
 }

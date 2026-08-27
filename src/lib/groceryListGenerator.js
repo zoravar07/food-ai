@@ -8,7 +8,7 @@ import { allIngredients, pricePer100g, priceEach, purchaseUnits, shoppingGuide }
 const AISLES = {
   meat: ["chicken_breast", "chicken_thigh", "salmon", "steak", "beef_mince_5", "turkey_mince", "pork_tenderloin"],
   chilled: ["greek_yoghurt", "milk", "cheese", "feta", "eggs", "coconut_water"],
-  produce: ["cucumber", "zucchini", "peppers", "avocado", "broccoli", "asparagus", "spinach", "cherry_tomato", "mushroom", "celery", "sweet_potato", "potato", "banana", "apple", "berries", "mango", "watermelon"],
+  produce: ["cucumber", "zucchini", "peppers", "avocado", "broccoli", "asparagus", "spinach", "cherry_tomato", "mushroom", "celery", "sweet_potato", "potato", "banana", "apple", "berries", "mango", "watermelon", "kiwi", "orange", "pineapple", "grapes"],
   bakery: ["sourdough", "pita", "tortilla"],
   cupboard: ["rice", "oats", "pasta", "rice_noodles", "breadcrumbs", "flour", "peanut_butter_g", "olive_oil_g", "sesame_oil_g", "tuna_tin", "edamame"],
 };

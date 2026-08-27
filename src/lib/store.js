@@ -45,6 +45,18 @@ export async function saveProfile(fields) {
   return data;
 }
 
+export async function addDislike(item) {
+  const p = await getProfile();
+  const next = Array.from(new Set([...(p.dislikes || []), item.toLowerCase().trim()]));
+  return saveProfile({ dislikes: next });
+}
+
+export async function removeDislike(item) {
+  const p = await getProfile();
+  const next = (p.dislikes || []).filter((d) => d !== item.toLowerCase().trim());
+  return saveProfile({ dislikes: next });
+}
+
 // ---------- Rules & cravings ----------
 export async function getRules() {
   if (!supabase) return memory.rules || [];
@@ -200,13 +212,19 @@ export async function getPantry() {
 
 export async function setPantryItem(ingredientId, name, quantity, unit = "g", extra = {}) {
   const row = { ingredient_id: ingredientId, name, quantity, unit, ...extra, updated_at: new Date().toISOString() };
-  if (!supabase) {
-    memory.pantry = memory.pantry.filter((p) => p.ingredient_id !== ingredientId).concat(row);
-    return row;
+  // If the newer columns (category/low/display) aren't in the database yet, the
+  // insert fails wholesale. Retry with just the core fields rather than losing
+  // the whole shop.
+  if (supabase) {
+    const first = await supabase.from("pantry").upsert(row, { onConflict: "ingredient_id" }).select().maybeSingle();
+    if (!first.error) return first.data;
+    const bare = { ingredient_id: ingredientId, name, quantity, unit, updated_at: row.updated_at };
+    const retry = await supabase.from("pantry").upsert(bare, { onConflict: "ingredient_id" }).select().maybeSingle();
+    if (retry.error) throw retry.error;
+    return retry.data;
   }
-  const { data, error } = await supabase.from("pantry").upsert(row, { onConflict: "ingredient_id" }).select().single();
-  if (error) throw error;
-  return data;
+  memory.pantry = memory.pantry.filter((p) => p.ingredient_id !== ingredientId).concat(row);
+  return row;
 }
 
 /** Pantry rows -> { ingredientId: quantity } for the grocery generator */
@@ -220,12 +238,36 @@ export async function getLeftovers() {
 
 /** After a shop, record what was bought so next week nets it off */
 export async function stockPantryFromShop(items) {
-  for (const it of items) {
-    const category = it.longLife ? "cupboard" : "fresh";
-    const existing = (await getPantry()).find((p) => p.ingredient_id === it.id);
-    const qty = (Number(existing?.quantity) || 0) + (it.buyGrams || 0);
-    await setPantryItem(it.id, it.name, qty, "g", { category, low: false, display: it.display });
+  const existing = await getPantry();
+  const rows = items.map((it) => {
+    const prev = existing.find((p) => p.ingredient_id === it.id);
+    return {
+      ingredient_id: it.id,
+      name: it.name,
+      quantity: (Number(prev?.quantity) || 0) + (it.buyGrams || 0),
+      unit: "g",
+      category: it.longLife ? "cupboard" : "fresh",
+      low: false,
+      display: it.display,
+      updated_at: new Date().toISOString(),
+    };
+  });
+
+  if (!supabase) {
+    rows.forEach((r) => {
+      memory.pantry = memory.pantry.filter((p) => p.ingredient_id !== r.ingredient_id).concat(r);
+    });
+    return rows;
   }
+
+  const full = await supabase.from("pantry").upsert(rows, { onConflict: "ingredient_id" }).select();
+  if (!full.error) return full.data;
+
+  // Older schema without category/low/display — write what it can take.
+  const bare = rows.map(({ ingredient_id, name, quantity, unit, updated_at }) => ({ ingredient_id, name, quantity, unit, updated_at }));
+  const retry = await supabase.from("pantry").upsert(bare, { onConflict: "ingredient_id" }).select();
+  if (retry.error) throw retry.error;
+  return retry.data;
 }
 
 export async function markPantry(ingredientId, state) {

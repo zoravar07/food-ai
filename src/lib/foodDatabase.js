@@ -48,6 +48,10 @@ export const veg = [
 ];
 
 export const fruit = [
+  { id: "kiwi", name: "Kiwi", kcal: 61, protein: 1.1, carbs: 15, fat: 0.5, fibre: 3, potassium: 312, storageDays: { fridge: 14, freezer: 0 } },
+  { id: "orange", name: "Orange", kcal: 47, protein: 0.9, carbs: 12, fat: 0.1, fibre: 2.4, potassium: 181, storageDays: { fridge: 21, freezer: 0 } },
+  { id: "pineapple", name: "Pineapple", kcal: 50, protein: 0.5, carbs: 13, fat: 0.1, fibre: 1.4, potassium: 109, storageDays: { fridge: 5, freezer: 180 } },
+  { id: "grapes", name: "Grapes", kcal: 69, protein: 0.7, carbs: 18, fat: 0.2, fibre: 0.9, potassium: 191, storageDays: { fridge: 7, freezer: 0 } },
   { id: "berries", name: "Mixed berries", kcal: 50, protein: 0.8, carbs: 12, fat: 0.3, fibre: 5, potassium: 150, storageDays: { fridge: 5, freezer: 240 } },
   { id: "watermelon", name: "Watermelon", kcal: 30, protein: 0.6, carbs: 8, fat: 0.2, storageDays: { fridge: 7, freezer: 0 } },
   { id: "banana", name: "Banana", kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, fibre: 2.6, potassium: 358, storageDays: { fridge: 5, freezer: 60 } },
@@ -116,6 +120,10 @@ export const purchaseUnits = {
 
   // Fruit
   banana:     { unit: "banana", perUnit: 120 },
+  kiwi:       { unit: "kiwi", perUnit: 75 },
+  orange:     { unit: "orange", perUnit: 140 },
+  pineapple:  { unit: "pineapple", perUnit: 900 },
+  grapes:     { unit: "punnet", perUnit: 400 },
   apple:      { unit: "apple", perUnit: 180 },
   berries:    { unit: "punnet", perUnit: 250 },
   mango:      { unit: "mango", perUnit: 300 },
@@ -203,6 +211,22 @@ export const shoppingGuide = {
     pick: "Squeeze gently — slight give like a ripe avocado. Smell the stem end; it should smell sweet.",
     avoid: "Rock hard (needs days), or wrinkly and leaking. Colour doesn't tell you much, go by feel and smell.",
   },
+  kiwi: {
+    pick: "Press gently — a little give means ready to eat. Firm ones ripen on the counter in a few days.",
+    avoid: "Mushy spots or wrinkled skin. Rock hard is fine if you're not eating it tonight.",
+  },
+  orange: {
+    pick: "Heavy for its size — that means juicy. Skin should be firm with a slight give.",
+    avoid: "Light ones feel hollow and will be dry. Soft or mouldy patches near the top.",
+  },
+  pineapple: {
+    pick: "Smell the base — it should smell sweet. Tug a leaf from the middle; if it comes out with a little resistance, it's ripe.",
+    avoid: "No smell at all means underripe. A fermented or boozy smell means it's gone over.",
+  },
+  grapes: {
+    pick: "Firmly attached to green, bendy stems. A dusty white bloom on the skin is a good sign, not dirt.",
+    avoid: "Brown brittle stems, or loose grapes rolling around the bottom of the bag.",
+  },
   watermelon: {
     pick: "Heavy for its size with a creamy yellow patch where it sat on the ground. Tap it — should sound hollow.",
     avoid: "White or missing ground patch means it was picked too early and will taste of nothing.",
@@ -235,7 +259,7 @@ export const pricePer100g = {
   broccoli: 0.25, asparagus: 0.7, spinach: 0.4, cucumber: 0.2, zucchini: 0.3,
   peppers: 0.5, cherry_tomato: 0.5, mushroom: 0.4, celery: 0.2, edamame: 0.6,
   avocado: 0.8, berries: 1.2, watermelon: 0.15, banana: 0.2, apple: 0.25, mango: 0.4,
-  greek_yoghurt: 0.28, feta: 1.0, milk: 0.09, coconut_water: 0.25, breadcrumbs: 0.35, peanut_butter_g: 0.6, olive_oil_g: 0.7, sesame_oil_g: 1.2, flour: 0.15, cheese: 0.9, tortilla: 0.45,
+  greek_yoghurt: 0.28, feta: 1.0, kiwi: 0.5, orange: 0.25, pineapple: 0.3, grapes: 0.6, milk: 0.09, coconut_water: 0.25, breadcrumbs: 0.35, peanut_butter_g: 0.6, olive_oil_g: 0.7, sesame_oil_g: 1.2, flour: 0.15, cheese: 0.9, tortilla: 0.45,
 };
 export const priceEach = { eggs: 0.28, tuna_tin: 1.1 };
 
@@ -263,6 +287,10 @@ export const kitchenUnits = {
   cheese:          { per: 20,  one: "slice" },
   feta:            { per: 30,  one: "chunk" },
   banana:          { per: 118, one: "banana" },
+  kiwi:            { per: 75,  one: "kiwi" },
+  orange:          { per: 140, one: "orange" },
+  pineapple:       { per: 165, one: "cup of chunks" },
+  grapes:          { per: 150, one: "handful" },
   apple:           { per: 182, one: "apple" },
   avocado:         { per: 150, one: "avocado", half: true },
   cucumber:        { per: 300, one: "cucumber", half: true },

@@ -48,6 +48,15 @@ export const templates = {
     { id: "banana_pb", name: "Banana & peanut butter", items: [["banana", 120], ["peanut_butter_g", 25]], proteinAnchor: null, carbAnchor: null, time: 2 },
     { id: "cheese_tomato", name: "Cheese & cherry tomatoes", items: [["cheese", 40], ["cherry_tomato", 120]], proteinAnchor: null, carbAnchor: null, time: 2 },
   ],
+  dessert: [
+    { id: "watermelon_dessert", name: "Watermelon", items: [["watermelon", 300]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "kiwi_dessert", name: "Kiwi", items: [["kiwi", 150]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "orange_dessert", name: "Orange", items: [["orange", 140]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "grapes_dessert", name: "Frozen grapes", items: [["grapes", 150]], proteinAnchor: null, carbAnchor: null, time: 1 },
+    { id: "pineapple_dessert", name: "Pineapple", items: [["pineapple", 165]], proteinAnchor: null, carbAnchor: null, time: 3 },
+    { id: "yoghurt_berries_dessert", name: "Yoghurt & berries", items: [["greek_yoghurt", 150], ["berries", 80]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "choc_yoghurt_dessert", name: "Chocolate yoghurt bowl", items: [["greek_yoghurt", 170], ["banana", 100]], proteinAnchor: null, carbAnchor: null, time: 3 },
+  ],
   dinner: [
     { id: "salmon_greens_rice", name: "Salmon, greens & rice", cuisine: "japanese", items: [["salmon", 180], ["rice", 120], ["broccoli", 120], ["olive_oil_g", 10]], proteinAnchor: "salmon", carbAnchor: "rice", time: 25 },
     { id: "beef_tacos", name: "Beef mince tacos", cuisine: "mexican", items: [["beef_mince_5", 220], ["tortilla", 3], ["cheese", 40], ["avocado", 60]], proteinAnchor: "beef_mince_5", carbAnchor: "tortilla", time: 20 },
@@ -85,14 +94,19 @@ const PACK_COST = {
   beef_mince_5: 5.5, turkey_mince: 5.0, pork_tenderloin: 5.2,
 };
 
-function pickNonRepeating(list, usedIds, expensiveCount, openedProteins = new Set()) {
+function pickNonRepeating(list, usedIds, expensiveCount, openedProteins = new Set(), blockedIds = []) {
   const options = list.filter((t) => {
+    if (blockedIds.includes(t.id)) return false;
     if (usedIds.has(t.id)) return false;
     const capped = t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]);
     return !capped;
   });
-  const pool = options.length ? options : list.filter((t) => !t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]));
-  const finalPool = pool.length ? pool : list;
+  const allowed = list.filter((t) => !blockedIds.includes(t.id));
+  const pool = options.length
+    ? options
+    : allowed.filter((t) => !t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]));
+  // Never fall back to the full list — a disliked meal must never be planned.
+  const finalPool = pool.length ? pool : (allowed.length ? allowed : list);
 
   // Weight selection by TRUE marginal cost: a meal using a protein we've already
   // opened this week is cheap; one needing a brand-new pack carries that pack's
@@ -148,16 +162,17 @@ function capMealCalories(meal) {
   return items;
 }
 
-function buildDayMeals(b, l, s, d, targets) {
+function buildDayMeals(b, l, s, d, targets, dessert) {
   const rawMeals = [
     { slot: "Breakfast", ...b, items: [...b.items] },
     { slot: "Lunch", ...l, items: [...l.items] },
     { slot: "Snack", ...s, items: [...s.items] },
     { slot: "Shake", name: "Whey shake", items: [["whey", 1]], proteinAnchor: null, carbAnchor: null, standalone: true },
     { slot: "Dinner", ...d, items: [...d.items] },
+    ...(dessert ? [{ slot: "Dessert", ...dessert, items: [...dessert.items] }] : []),
   ];
 
-  const scalable = new Set(["Breakfast", "Lunch", "Dinner"]);
+  const scalable = new Set(["Breakfast", "Lunch", "Dinner"]); // Snack/Shake/Dessert stay as-is
 
   // --- Pass 1: scale each meal's declared PROTEIN anchor toward the protein target.
   // Meals with no protein anchor (e.g. oats, salads) are left alone rather than
@@ -197,7 +212,7 @@ function buildDayMeals(b, l, s, d, targets) {
 // After the week is built, if it costs more than the budget, repeatedly swap the
 // single priciest lunch/dinner for the cheapest available alternative in that slot
 // until the whole week's grocery total fits — or we run out of cheaper options.
-function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
+function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], blocked = {}) {
   let current = week;
   for (let i = 0; i < maxSwaps; i++) {
     const grocery = buildGroceryList(current);
@@ -223,9 +238,10 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
     );
 
     // Pick the cheapest template NOT already on the menu — preserves variety while cutting cost.
+    const blockedHere = blocked[slotKey] || [];
     let best = null;
     templates[slotKey].forEach((tpl) => {
-      if (tpl.id === worst.currentId || inUse.has(tpl.id)) return;
+      if (tpl.id === worst.currentId || inUse.has(tpl.id) || blockedHere.includes(tpl.id)) return;
       const c = templateCost(tpl.items);
       if (c < worst.cost && (!best || c < best.cost)) best = { tpl, cost: c };
     });
@@ -236,7 +252,7 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
       const counts = {};
       current.forEach((d) => d.meals.filter((m) => m.slot === worst.slot).forEach((m) => { counts[m.id] = (counts[m.id] || 0) + 1; }));
       templates[slotKey].forEach((tpl) => {
-        if (tpl.id === worst.currentId) return;
+        if (tpl.id === worst.currentId || blockedHere.includes(tpl.id)) return;
         if ((counts[tpl.id] || 0) >= 2) return; // hard cap: max 2 of the same meal per week
         const c = templateCost(tpl.items);
         if (c < worst.cost && (!best || c < best.cost)) best = { tpl, cost: c };
@@ -249,7 +265,7 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
     const l = worst.slot === "Lunch" ? best.tpl : day.meals.find((m) => m.slot === "Lunch");
     const sn = day.meals.find((m) => m.slot === "Snack");
     const d = worst.slot === "Dinner" ? best.tpl : day.meals.find((m) => m.slot === "Dinner");
-    const rebuilt = buildDayMeals(b, l, sn, d, targets);
+    const rebuilt = buildDayMeals(b, l, sn, d, targets, day.meals.find((m) => m.slot === "Dessert"));
     current = current.map((dd, di) => (di === worst.dayIdx ? { day: dd.day, ...rebuilt } : dd));
   }
   return current;
@@ -260,17 +276,24 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = []) {
  * @param {number} budgetCap - weekly grocery budget ceiling in £
  */
 function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
-  const { pins = [], favour = [], excludeIds = [] } = options;
-  const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set() };
+  const { pins = [], favour = [], blocked = {} } = options;
+  const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
   const expensiveCount = {};
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
   const openedProteins = new Set();
-  const rawWeek = days.map((day) => {
-    const b = pickNonRepeating(templates.breakfast, used.breakfast, expensiveCount, openedProteins);
-    const l = pickNonRepeating(templates.lunch, used.lunch, expensiveCount, openedProteins);
-    const s = pickNonRepeating(templates.snack, used.snack, expensiveCount, openedProteins);
-    const d = pickNonRepeating(templates.dinner, used.dinner, expensiveCount, openedProteins);
+
+  // Pick just 3 desserts for the whole week and rotate them. Seven different
+  // fruits means seven things to buy and most of them going off.
+  const dessertPool = templates.dessert.filter((x) => !(blocked.dessert || []).includes(x.id))
+    .sort(() => Math.random() - 0.5).slice(0, 3);
+
+  const rawWeek = days.map((day, dayIndex) => {
+    const b = pickNonRepeating(templates.breakfast, used.breakfast, expensiveCount, openedProteins, blocked.breakfast || []);
+    const l = pickNonRepeating(templates.lunch, used.lunch, expensiveCount, openedProteins, blocked.lunch || []);
+    const s = pickNonRepeating(templates.snack, used.snack, expensiveCount, openedProteins, blocked.snack || []);
+    const d = pickNonRepeating(templates.dinner, used.dinner, expensiveCount, openedProteins, blocked.dinner || []);
+    const ds = dessertPool[dayIndex % dessertPool.length];
     [b, l, s, d].forEach((tpl) => tpl.items.forEach(([id]) => { if (PACK_COST[id]) openedProteins.add(id); }));
     [b, l, s, d].forEach((tpl, i) => {
       used[["breakfast", "lunch", "snack", "dinner"][i]].add(tpl.id);
@@ -291,11 +314,11 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
     const ss = pinFor("Snack") || s;
     const dd = pinFor("Dinner") || d;
 
-    const { meals, totals } = buildDayMeals(bb, ll, ss, dd, targets);
+    const { meals, totals } = buildDayMeals(bb, ll, ss, dd, targets, ds);
     return { day, meals, totals };
   });
 
-  let planned = enforceBudget(rawWeek, targets, budgetCap);
+  let planned = enforceBudget(rawWeek, targets, budgetCap, 20, pins, blocked);
 
   // Last resort: shave portions of the priciest *protein* items a little at a time.
   // Protein target has slack (we typically overshoot ~185g vs 174g), so small trims
@@ -388,7 +411,8 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
           pin.slot === "Lunch" ? tpl : meals.find((m) => m.slot === "Lunch"),
           pin.slot === "Snack" ? tpl : meals.find((m) => m.slot === "Snack"),
           pin.slot === "Dinner" ? tpl : meals.find((m) => m.slot === "Dinner"),
-          targets
+          targets,
+          pin.slot === "Dessert" ? tpl : meals.find((m) => m.slot === "Dessert")
         );
         meals = built.meals;
       });
@@ -456,6 +480,20 @@ function scoreWeek(week, targets, budgetCap, favour = []) {
  * Interpret standing rules and cravings into planner constraints.
  * Rules are free text, so we match loosely on meal names, cuisines and days.
  */
+/** Templates that use any disliked ingredient are never selected. */
+export function excludeDisliked(dislikes = []) {
+  const bad = dislikes.map((d) => d.toLowerCase().trim()).filter(Boolean);
+  if (!bad.length) return {};
+  const blocked = {};
+  Object.entries(templates).forEach(([slot, list]) => {
+    blocked[slot] = list.filter((tpl) =>
+      tpl.items.some(([id]) => bad.some((b) => id.includes(b.replace(/\s+/g, "_")) || b.includes(id)))
+      || bad.some((b) => tpl.name.toLowerCase().includes(b))
+    ).map((tpl) => tpl.id);
+  });
+  return blocked;
+}
+
 export function interpretRules(rules = []) {
   const pins = [];      // { day, slot, templateId }
   const favour = [];    // cuisine or template ids to prefer
