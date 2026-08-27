@@ -270,13 +270,19 @@ export async function stockPantryFromShop(items) {
   return retry.data;
 }
 
+// "Plenty" needs to actually clear the shopping list, not just nudge quantity
+// off zero — 1g still leaves the grocery generator asking for nearly the full
+// amount. No single tracked ingredient's realistic weekly need comes close to
+// this, so flooring here reliably zeroes out what the list thinks is needed.
+const PLENTY_FLOOR = 5000;
+
 export async function markPantry(ingredientId, state) {
   const rows = await getPantry();
   const row = rows.find((p) => p.ingredient_id === ingredientId);
   if (!row) return;
   if (state === "out") await setPantryItem(ingredientId, row.name, 0, row.unit, { low: false, category: row.category });
   if (state === "low") await setPantryItem(ingredientId, row.name, row.quantity, row.unit, { low: true, category: row.category });
-  if (state === "plenty") await setPantryItem(ingredientId, row.name, Math.max(row.quantity, 1), row.unit, { low: false, category: row.category });
+  if (state === "plenty") await setPantryItem(ingredientId, row.name, Math.max(row.quantity, PLENTY_FLOOR), row.unit, { low: false, category: row.category });
 }
 
 export async function removePantryItem(ingredientId) {
