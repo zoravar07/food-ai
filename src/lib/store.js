@@ -100,14 +100,25 @@ export async function clearCravings() {
 // the same week. Each new one is stored with a version so the old one survives.
 export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
   if (!supabase) {
-    memory.weeks.unshift({ id: crypto.randomUUID(), week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() });
+    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart ? { ...w, status: "archived" } : w));
+    memory.weeks.unshift({ id: crypto.randomUUID(), week_start: weekStart, plan, targets, budget_cap: budgetCap, status: "draft", created_at: new Date().toISOString() });
     return memory.weeks[0];
   }
 
-  const { data, error } = await supabase
-    .from("weeks")
-    .insert({ week_start: weekStart, plan, targets, budget_cap: budgetCap })
-    .select().single();
+  // A fresh plan replaces whatever was there for that week, so the old one
+  // archives rather than lingering as a second live plan. If that week had
+  // already been shopped the food is still in the kitchen, so the replacement
+  // inherits that — regenerating a plan doesn't un-buy the groceries.
+  let row = { week_start: weekStart, plan, targets, budget_cap: budgetCap };
+  if (await statusAvailable()) {
+    const prior = await supabase.from("weeks").select("status, shopped_at").eq("week_start", weekStart).eq("status", "active").limit(1);
+    const wasShopped = prior.data?.[0];
+    await supabase.from("weeks").update({ status: "archived" }).eq("week_start", weekStart);
+    row = wasShopped
+      ? { ...row, status: "active", shopped_at: wasShopped.shopped_at }
+      : { ...row, status: "draft" };
+  }
+  const { data, error } = await supabase.from("weeks").insert(row).select().single();
 
   if (!error) return data;
 
@@ -129,6 +140,45 @@ export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
     return retry.data;
   }
   throw error;
+}
+
+// ---------- Shop state (schema v3) ----------
+// Which weeks have actually been shopped for. Until the v3 migration is run the
+// column isn't there, so every status-aware call degrades to the old date-only
+// behaviour rather than erroring — the app keeps working either way.
+let hasStatus = null;
+async function statusAvailable() {
+  if (hasStatus !== null) return hasStatus;
+  if (!supabase) { hasStatus = true; return true; }
+  const { error } = await supabase.from("weeks").select("status").limit(1);
+  hasStatus = !error;
+  if (!hasStatus) console.warn("weeks.status missing — run the v3 block in supabase_schema.sql");
+  return hasStatus;
+}
+
+/** Week starts that have been shopped for, newest first. */
+export async function getShoppedWeeks(limit = 12) {
+  if (!supabase) return (memory.weeks || []).filter((w) => w.status === "active").map((w) => w.week_start);
+  if (!(await statusAvailable())) return [];
+  const { data, error } = await supabase
+    .from("weeks").select("week_start").eq("status", "active")
+    .order("week_start", { ascending: false }).limit(limit);
+  if (error) return [];
+  return (data || []).map((r) => r.week_start);
+}
+
+/** "Groceries done" — this week's plan is now the one being eaten from. */
+export async function markWeekShopped(weekStart) {
+  if (!supabase) {
+    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart ? { ...w, status: "active" } : w));
+    return;
+  }
+  if (!(await statusAvailable())) return;
+  const current = await getWeek(weekStart);
+  if (!current?.id) return;
+  // Older plans for the same week step aside so only one is ever the live one.
+  await supabase.from("weeks").update({ status: "archived" }).eq("week_start", weekStart).neq("id", current.id);
+  await supabase.from("weeks").update({ status: "active", shopped_at: new Date().toISOString() }).eq("id", current.id);
 }
 
 export async function saveWeek(weekStart, plan, targets, budgetCap) {

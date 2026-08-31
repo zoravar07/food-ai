@@ -197,9 +197,13 @@ export default function App() {
   const [overwrite, setOverwrite] = useState(null);
   const [lastAction, setLastAction] = useState(null);
   const [pantryCheck, setPantryCheck] = useState(null);
+  const [shopped, setShopped] = useState([]);      // week_starts already shopped for
+  const [booted, setBooted] = useState(false);
   const chatEnd = useRef(null);
   const undoRef = useRef(null);
   const pendingLog = useRef(null);   // where an AI macro estimate must land
+  const autoPlanned = useRef(new Set());  // weeks already auto-generated this session
+  const lastSettings = useRef(null);
 
   const wsKey = weekStartFor(weekOffset);
   const plan = weeks[wsKey] || null;
@@ -211,6 +215,10 @@ export default function App() {
   // you'd already shopped.
   const shopKey = weekStartFor(shopOffset);
   const shopPlan = weeks[shopKey] || null;
+  const isShopped = (offset) => shopped.includes(weekStartFor(offset));
+  // The draft is the first week that hasn't been bought for. Settings changes
+  // regenerate this one and never a week whose food is already in the kitchen.
+  const draftOffset = isShopped(0) ? 1 : 0;
 
   useEffect(() => { boot(); }, []);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, busy]);
@@ -247,11 +255,17 @@ export default function App() {
       else await makePlan(0, p);
       const prev = await store.getWeek(weekStartFor(-1));
       if (prev?.plan) setWeeks((w) => ({ ...w, [weekStartFor(-1)]: prev.plan }));
+      const done = await store.getShoppedWeeks().catch(() => []);
+      setShopped(done);
+      // Open on the shop you still owe. Once this week is bought, that's next week.
+      setShopOffset(done.includes(weekStartFor(0)) ? 1 : 0);
       await Promise.all([loadPantry(), loadRules(), loadLogs(), loadExtras()]);
     } catch (e) { console.error(e); await makePlan(0, store.DEFAULT_PROFILE); }
+    setBooted(true);
   }
 
   const loadPantry = async () => { try { setPantry(await store.getPantry()); } catch {} };
+  const loadShopped = async () => { try { setShopped(await store.getShoppedWeeks()); } catch {} };
   const loadRules = async () => { try { setRules(await store.getRules()); } catch {} };
   const loadExtras = async () => {
     try { setCustom(await store.getCustomItems()); } catch {}
@@ -289,9 +303,44 @@ export default function App() {
   }
 
   useEffect(() => { refreshGrocery(shopPlan); /* eslint-disable-next-line */ }, [shopPlan, haveEnough, pantry]);
-  useEffect(() => { loadWeekIfNeeded(shopOffset); /* eslint-disable-next-line */ }, [shopOffset]);
+  // Sunday fallback: if the week being shopped for has no plan — the app wasn't
+  // opened all week, say — load it, and build one on the spot if there is none,
+  // rather than leaving the Shop tab empty.
+  async function ensureShopPlan(offset) {
+    const key = weekStartFor(offset);
+    if (weeks[key] || autoPlanned.current.has(key)) return;
+    autoPlanned.current.add(key);
+    const stored = await store.getWeek(key).catch(() => null);
+    if (stored?.plan) { setWeeks((w) => ({ ...w, [key]: stored.plan })); return; }
+    await makePlan(offset);
+  }
+  useEffect(() => { if (booted) ensureShopPlan(shopOffset); /* eslint-disable-next-line */ }, [booted, shopOffset]);
 
-  async function makePlan(offset = weekOffset, prof = profile) {
+  // Standing rules, dislikes and the budget only affect food not yet bought, so
+  // a change rebuilds the draft alone. Debounced, because tapping through
+  // settings would otherwise fire a full regeneration on every keystroke.
+  // Cravings are left out of the signature: generation consumes them, so
+  // including them would make each regeneration trigger the next.
+  const settingsSig = JSON.stringify([
+    rules.filter((r) => r.kind === "standing").map((r) => r.text).sort(),
+    [...(profile.dislikes || [])].sort(),
+    profile.budget_cap,
+  ]);
+  useEffect(() => {
+    if (!booted) return;
+    if (lastSettings.current === null) { lastSettings.current = settingsSig; return; }
+    if (lastSettings.current === settingsSig) return;
+    lastSettings.current = settingsSig;
+    const t = setTimeout(() => {
+      const key = weekStartFor(draftOffset);
+      if (!weeks[key] || shopped.includes(key) || busy) return;
+      makePlan(draftOffset, profile, { quiet: true });
+    }, 3000);
+    return () => clearTimeout(t);
+    /* eslint-disable-next-line */
+  }, [settingsSig, booted]);
+
+  async function makePlan(offset = weekOffset, prof = profile, { quiet = false } = {}) {
     setBusy(true); setConfirmNew(false);
     const tg = calculateTargets(prof);
     const opts = { ...interpretRules(rules), blocked: excludeDisliked(prof.dislikes || []) };
@@ -304,7 +353,8 @@ export default function App() {
       if (rules.some((r) => r.kind === "craving")) { await store.clearCravings(); await loadRules(); }
     } catch (e) { console.error(e); flash("Generated but not saved"); }
     setBusy(false);
-    flash(offset === weekOffset ? "New plan ready" : `${weekLabel(offset)} planned`);
+    if (quiet) flash(`${weekLabel(offset)} rebuilt around your new rules`);
+    else flash(offset === weekOffset ? "New plan ready" : `${weekLabel(offset)} planned`);
   }
 
   async function applyPlan(next) {
@@ -455,8 +505,15 @@ export default function App() {
       console.error("pantry write failed:", e);
       return flash(`Couldn't save to pantry: ${e.message || "check Supabase setup"}`);
     }
+    // The shop actually happened, so this week's plan stops being a draft and
+    // becomes the one being eaten from. Nothing else can tell us that.
+    try { await store.markWeekShopped(shopKey); await loadShopped(); } catch {}
     setChecked({});
     setTab("pantry");
+    // Roll straight on to the next shop. Pointing shopOffset at it is enough —
+    // ensureShopPlan builds the plan if there isn't one, and it's the only path
+    // that does, so the two can't both generate for the same week.
+    setShopOffset(Math.min(1, shopOffset + 1));
     flash(`${picked.length} items added to your pantry`, async () => {
       for (const it of picked) await store.removePantryItem(it.id);
       loadPantry();
@@ -758,11 +815,13 @@ export default function App() {
         {/* ---------- GROCERIES ---------- */}
         {tab === "groceries" && !shopPlan && (
           <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center" }}>
-            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>No plan to shop for</div>
+            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>{busy ? "Building the list…" : "No plan to shop for"}</div>
             <div style={{ fontSize: 14, color: t.soft, marginBottom: 20, lineHeight: 1.5 }}>
-              The list is built from {weekLabel(shopOffset).toLowerCase()}'s meals, and there's no plan for it yet.
+              {busy
+                ? `Putting ${weekLabel(shopOffset).toLowerCase()}'s meals together.`
+                : `The list is built from ${weekLabel(shopOffset).toLowerCase()}'s meals, and there's no plan for it yet.`}
             </div>
-            <Btn kind="primary" size="lg" onClick={() => makePlan(shopOffset)} disabled={busy}>{busy ? "Generating…" : "Generate now"}</Btn>
+            {!busy && <Btn kind="primary" size="lg" onClick={() => makePlan(shopOffset)}>Generate now</Btn>}
           </div>
         )}
 
@@ -774,6 +833,7 @@ export default function App() {
             </div>
             <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 12px" }}>
               For {weekLabel(shopOffset).toLowerCase()} · {grocery.items.length} items · {Object.values(checked).filter(Boolean).length} in basket
+              {isShopped(shopOffset) && <span style={{ color: t.teal }}> · already shopped, this is what's still missing</span>}
             </p>
 
             {/* Which week you're shopping for is now an explicit choice here,
@@ -783,6 +843,7 @@ export default function App() {
                 <button key={o} onClick={() => { setShopOffset(o); setChecked({}); }}
                   style={{ flex: 1, background: shopOffset === o ? t.cardHi : "transparent", border: "none", color: shopOffset === o ? t.text : t.soft, fontWeight: 600, fontSize: 13.5, padding: "9px 10px", borderRadius: 9 }}>
                   {weekLabel(o)}
+                  {isShopped(o) && <span style={{ color: t.teal, marginLeft: 6, fontSize: 12 }}>✓ bought</span>}
                 </button>
               ))}
             </div>
