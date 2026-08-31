@@ -47,6 +47,14 @@ function checkWeek(w, label, pins) {
     if (m.slot !== "Shake" && (m.items || []).some(([id]) => id === "whey")) bad(`${label}: whey in dish`, m.name);
     if (m.slot === "Breakfast" && m.time > 10) bad(`${label}: slow breakfast`, `${m.name} ${m.time}min`);
   }
+  // A week that fits the budget by being the same meal seven days running is not
+  // a win — CLAUDE.md is explicit that plans must not be bland or repetitive.
+  // This went unchecked once and a budget fix quietly collapsed every plan with a
+  // standing rule to 2 distinct dinners out of 7.
+  for (const [slot, floor] of [["Dinner", 3], ["Lunch", 3], ["Breakfast", 3]]) {
+    const distinct = new Set(w.map((d) => d.meals.find((m) => m.slot === slot)?.id)).size;
+    if (distinct < floor) bad(`${label}: MONOTONOUS ${slot.toLowerCase()}s`, `${distinct} distinct in 7 days`);
+  }
   for (const p of pins) {
     const day = w.find((d) => d.day === p.day);
     const meal = day?.meals.find((m) => m.slot === p.slot);

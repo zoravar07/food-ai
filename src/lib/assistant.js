@@ -3,6 +3,8 @@
 // plan, pantry and goals so it can answer usefully — and return structured
 // actions (like a meal swap) the app can actually execute.
 
+import { kitchenAmount } from "./foodDatabase.js";
+
 const USER_CONTEXT = `
 You are hungryvar, a personal nutrition and meal-planning assistant for one specific user.
 
@@ -108,6 +110,19 @@ coconut_water, cheese, rice, pasta, oats, sourdough, tortilla, sweet_potato, pot
 breadcrumbs, peanut_butter_g, olive_oil_g, berries, banana, apple, avocado, cucumber, peppers,
 broccoli, spinach, cherry_tomato, watermelon
 
+MID-WEEK CRAVINGS — the most common thing he asks for. Don't just agree; check
+the state above first, then talk it through in a sentence or two:
+- Everything for it is already in the kitchen -> offer to swap it into one of the
+  days still left this week, and say which meal that would displace. If he says
+  yes, emit set_meal (or swap_meal) for that day.
+- Something's missing and this week's shop is already done -> say what's missing
+  and give him the choice: grab it while he's out, or have it next week. If he
+  picks next week, emit add_craving — that rebuilds next week's plan around it.
+- Something's missing and this week's shop hasn't happened -> it can just go on
+  this week's list, so emit add_craving and tell him it'll be on the shop.
+Never swap into a day that has already gone. Only the days listed above are
+available. Don't offer a meal whose ingredients he's run out of.
+
 Only include an action block when they actually want something changed.
 `;
 
@@ -123,16 +138,30 @@ export function parseAction(text) {
   }
 }
 
+/** Which weekdays are still ahead, so a swap can never land on a day that's gone. */
+function remainingDays() {
+  const d = new Date().getDay();
+  const todayIdx = d === 0 ? 6 : d - 1;
+  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].slice(todayIdx);
+}
+
 /**
  * @param {Array<{role:string, content:string}>} messages
- * @param {Object} context - { week, pantry, targets, todayLogs }
+ * @param {Object} context - { week, pantry, targets, todayLogs, shoppedThisWeek }
  */
 export async function askAssistant(messages, context = {}) {
+  const stocked = (context.pantry || []).filter((p) => Number(p.quantity) > 0);
+  const runOut = (context.pantry || []).filter((p) => Number(p.quantity) <= 0 && p.category !== "cupboard");
+
   const contextBlock = `
 CURRENT STATE:
-${context.week ? `This week's plan:\n${summarisePlan(context.week)}` : "No plan generated yet."}
+${context.week ? `Rest of this week:\n${summarisePlan(context.week)}` : "No plan generated yet."}
 
-${context.pantry?.length ? `In the kitchen: ${context.pantry.filter((p) => p.quantity > 0).map((p) => p.name).join(", ")}` : ""}
+Days left this week (only these can be swapped into): ${remainingDays().join(", ") || "none — the week is over"}
+This week's shop: ${context.shoppedThisWeek ? "already done" : "NOT done yet"}
+
+${stocked.length ? `In the kitchen right now:\n${stocked.map((p) => `- ${p.name}: ${kitchenAmount(p.ingredient_id, Math.round(Number(p.quantity)))}`).join("\n")}` : "Kitchen is empty."}
+${runOut.length ? `\nRun out of: ${runOut.map((p) => p.name).join(", ")}` : ""}
 
 ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- ${l.slot}: ${l.status}${l.meal_name ? ` (${l.meal_name})` : ""}`).join("\n")}` : ""}
 `.trim();
