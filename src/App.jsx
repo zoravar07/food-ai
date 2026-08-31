@@ -132,10 +132,10 @@ function RecipePage({ meal, onBack }) {
 }
 
 /* ---------------- meal card ---------------- */
-function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly }) {
+function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly, missing = [] }) {
   const done = log?.status === "eaten", out = log?.status === "ate_out";
   return (
-    <div style={{ background: t.card, border: `1px solid ${done ? "rgba(77,212,184,.35)" : t.line}`, borderRadius: 16, display: "flex", alignItems: "stretch", opacity: log?.status === "skipped" ? .5 : 1 }}>
+    <div style={{ background: t.card, border: `1px solid ${done ? "rgba(77,212,184,.35)" : missing.length ? "rgba(255,122,122,.35)" : t.line}`, borderRadius: 16, display: "flex", alignItems: "stretch", opacity: log?.status === "skipped" ? .5 : 1 }}>
       <button onClick={() => !readOnly && onMark(meal, done ? null : "eaten")}
         style={{ background: "none", border: "none", padding: "16px 0 16px 16px", alignSelf: "flex-start" }}>
         <div style={{ width: 26, height: 26, borderRadius: 8, border: `2px solid ${done ? t.teal : t.line}`, background: done ? t.teal : "transparent", color: t.bg, fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{done ? "✓" : ""}</div>
@@ -145,6 +145,11 @@ function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly }) {
           <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".07em" }}>{meal.slot}</span>
           {meal.time && <span style={{ fontSize: 11.5, color: t.dim }}>{meal.time} min</span>}
           {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>ate out</span>}
+          {missing.length > 0 && !out && (
+            <span style={{ fontSize: 11.5, color: t.coral, fontWeight: 600 }}>
+              out of {missing.join(" & ").toLowerCase()}
+            </span>
+          )}
         </div>
         <div style={{ fontSize: 16.5, fontWeight: 600, marginBottom: 4, lineHeight: 1.25 }}>{out && log?.meal_name ? log.meal_name : meal.name}</div>
         <div style={{ fontSize: 13, color: t.soft }}>
@@ -195,12 +200,12 @@ export default function App() {
   const [ateOut, setAteOut] = useState(null);
   const [ateOutText, setAteOutText] = useState("");
   const [overwrite, setOverwrite] = useState(null);
-  const [lastAction, setLastAction] = useState(null);
+  const [undoStack, setUndoStack] = useState([]);   // most recent undoable action first
+  const undoRef = useRef([]);                      // same list, readable synchronously
   const [pantryCheck, setPantryCheck] = useState(null);
   const [shopped, setShopped] = useState([]);      // week_starts already shopped for
   const [booted, setBooted] = useState(false);
   const chatEnd = useRef(null);
-  const undoRef = useRef(null);
   const pendingLog = useRef(null);   // where an AI macro estimate must land
   const autoPlanned = useRef(new Set());  // weeks already auto-generated this session
   const lastSettings = useRef(null);
@@ -216,6 +221,20 @@ export default function App() {
   const shopKey = weekStartFor(shopOffset);
   const shopPlan = weeks[shopKey] || null;
   const isShopped = (offset) => shopped.includes(weekStartFor(offset));
+  // Ingredients the pantry says are gone. Something never bought has no pantry
+  // row at all — that's unknown, not out, so it is deliberately not flagged.
+  const outOfStock = new Set(
+    pantry.filter((p) => p.category !== "cupboard" && Number(p.quantity) <= 0).map((p) => p.ingredient_id)
+  );
+  /** Ingredients a meal needs that the kitchen has run out of. Only meaningful
+   *  for days still to come in a week already shopped for — that plan assumed
+   *  the food was there, and now it isn't. */
+  const missingFor = (meal, offset, dIdx) => {
+    if (offset !== 0 || dIdx < todayDayIdx() || !isShopped(0)) return [];
+    return (meal.items || [])
+      .filter(([id]) => id !== "whey" && outOfStock.has(id))
+      .map(([id]) => allIngredients.find((x) => x.id === id)?.name || id);
+  };
   // The draft is the first week that hasn't been bought for. Settings changes
   // regenerate this one and never a week whose food is already in the kitchen.
   const draftOffset = isShopped(0) ? 1 : 0;
@@ -280,19 +299,25 @@ export default function App() {
   }
 
   const flash = useCallback((msg, undo) => {
-    undoRef.current = undo || null;
     setToast({ msg, undo: Boolean(undo) });
     // A toast is easy to miss with a phone in one hand and a trolley in the
-    // other, so anything undoable also parks itself on Shop and Pantry until
-    // the next undoable action replaces it.
-    if (undo) setLastAction({ msg, fn: undo });
+    // other, so undoable actions stack up and stay reachable on Shop and Pantry.
+    // A stack rather than one slot: doing two things in a row used to make the
+    // first unreachable, and plan swaps need to be undoable too.
+    if (undo) {
+      undoRef.current = [{ msg, fn: undo }, ...undoRef.current].slice(0, 5);
+      setUndoStack(undoRef.current);
+    }
     setTimeout(() => setToast((cur) => (cur?.msg === msg ? null : cur)), undo ? 9000 : 2600);
   }, []);
 
+  /** Undo the most recent undoable action and drop it off the stack. */
   const runUndo = useCallback(async () => {
-    const fn = undoRef.current;
-    undoRef.current = null; setToast(null); setLastAction(null);
-    if (fn) await fn();
+    setToast(null);
+    const [top, ...rest] = undoRef.current;
+    undoRef.current = rest;
+    setUndoStack(rest);
+    if (top?.fn) await top.fn();
   }, []);
 
   async function refreshGrocery(p, he = haveEnough) {
@@ -340,17 +365,20 @@ export default function App() {
     /* eslint-disable-next-line */
   }, [settingsSig, booted]);
 
-  async function makePlan(offset = weekOffset, prof = profile, { quiet = false } = {}) {
+  async function makePlan(offset = weekOffset, prof = profile, { quiet = false, rules: rulesArg } = {}) {
     setBusy(true); setConfirmNew(false);
     const tg = calculateTargets(prof);
-    const opts = { ...interpretRules(rules), blocked: excludeDisliked(prof.dislikes || []) };
+    // Callers can pass rules explicitly: React state lags a just-saved rule by a
+    // render, and generating without it would silently drop what he just asked for.
+    const rs = rulesArg || rules;
+    const opts = { ...interpretRules(rs), blocked: excludeDisliked(prof.dislikes || []) };
     const p = generateWeek(tg, prof.budget_cap || 65, 60, opts);
     const key = weekStartFor(offset);
     setWeeks((w) => ({ ...w, [key]: p }));
     setShopOffset(offset);   // the shop follows the plan you just generated
     try {
       await store.saveWeekVersion(key, p, tg, prof.budget_cap || 65);
-      if (rules.some((r) => r.kind === "craving")) { await store.clearCravings(); await loadRules(); }
+      if (rs.some((r) => r.kind === "craving")) { await store.clearCravings(); await loadRules(); }
     } catch (e) { console.error(e); flash("Generated but not saved"); }
     setBusy(false);
     if (quiet) flash(`${weekLabel(offset)} rebuilt around your new rules`);
@@ -488,7 +516,9 @@ export default function App() {
     setHaveEnough(next);
     try { await store.setHaveEnough(id, on); } catch {}
     flash(on ? "Taken off the list" : "Back on the list", () => {
-      setHaveEnough(on ? haveEnough.filter((x) => x !== id) : [...haveEnough, id]);
+      // Functional update — closing over `haveEnough` meant undoing after two
+      // toggles restored a stale list and silently dropped the other change.
+      setHaveEnough((prev) => (on ? prev.filter((x) => x !== id) : [...prev, id]));
       store.setHaveEnough(id, !on).catch(() => {});
     });
   }
@@ -496,6 +526,8 @@ export default function App() {
   async function groceriesDone() {
     const picked = grocery.items.filter((i) => checked[i.id]);
     if (!picked.length) return flash("Nothing ticked yet");
+    // Snapshot before stocking so undo can restore quantities, not wipe rows.
+    const priorStock = pantry.map((p) => ({ ...p }));
     try {
       await store.stockPantryFromShop(picked);
       try { await store.saveShop(iso(new Date()), picked, picked.reduce((a, i) => a + i.estCost, 0)); } catch {}
@@ -515,7 +547,13 @@ export default function App() {
     // that does, so the two can't both generate for the same week.
     setShopOffset(Math.min(1, shopOffset + 1));
     flash(`${picked.length} items added to your pantry`, async () => {
-      for (const it of picked) await store.removePantryItem(it.id);
+      // Undo used to delete the pantry rows outright, so 300g of chicken you
+      // already had before the shop vanished with it. Put back what was there.
+      for (const it of picked) {
+        const was = priorStock.find((p) => p.ingredient_id === it.id);
+        if (was) await store.setPantryItem(was.ingredient_id, was.name, was.quantity, was.unit, { category: was.category, low: was.low });
+        else await store.removePantryItem(it.id);
+      }
       loadPantry();
     });
   }
@@ -525,7 +563,10 @@ export default function App() {
     const next = [...chat, { role: "user", content: text }];
     setChat(next); setBusy(true);
     try {
-      const { reply, actions } = await askAssistant(next, { week: plan, pantry, targets, rules });
+      const { reply, actions } = await askAssistant(next, {
+        week: weeks[weekStartFor(0)] || plan, pantry, targets, rules,
+        shoppedThisWeek: isShopped(0),
+      });
       setChat([...next, { role: "assistant", content: reply }]);
       for (const a of actions || []) await runAction(a);
     } catch (e) { setChat([...next, { role: "assistant", content: `Couldn't reach the assistant — ${e.message}` }]); }
@@ -604,7 +645,19 @@ export default function App() {
     if (a.type === "need_again" && a.ingredient) return toggleEnough(a.ingredient, false);
     if (a.type === "pantry" && a.ingredient) return pantryAction(a.ingredient, a.state);
     if (a.type === "add_rule") { try { await store.addRule(a.text, "standing"); await loadRules(); flash("Rule saved"); } catch {} return; }
-    if (a.type === "add_craving") { try { await store.addRule(a.text, "craving"); await loadRules(); flash("Craving noted"); } catch {} return; }
+    if (a.type === "add_craving") {
+      try {
+        await store.addRule(a.text, "craving");
+        const fresh = await store.getRules();
+        setRules(fresh);
+        // "Add it to next week" should change next week, not wait for the next
+        // time he happens to regenerate. Never touches a week already bought for.
+        const key = weekStartFor(draftOffset);
+        if (!shopped.includes(key)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
+        else flash("Craving noted");
+      } catch {}
+      return;
+    }
     if (a.type === "remove_rule") { try { const r = await store.removeRuleByText(a.match || a.text || ""); await loadRules(); flash(r ? "Rule removed" : "No matching rule"); } catch {} return; }
     if (a.type === "add_dislike" && a.item) {
       try { const p = await store.addDislike(a.item); setProfile(p); flash(`Won't plan ${a.item} again`); } catch {}
@@ -739,11 +792,11 @@ export default function App() {
         {/* Ticking the wrong thing off in a shop is easy and the toast is gone
             by the time you notice, so the last undoable action stays reachable
             on both tabs where that happens. */}
-        {lastAction && (tab === "groceries" || tab === "pantry") && (
+        {undoStack.length > 0 && (tab === "groceries" || tab === "pantry") && (
           <button onClick={runUndo}
             style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: t.card, border: `1px solid ${t.line}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14, color: t.text, fontFamily: "inherit" }}>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>↩ Undo last action</span>
-            <span style={{ fontSize: 12.5, color: t.soft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{lastAction.msg}</span>
+            <span style={{ fontSize: 13.5, fontWeight: 600 }}>↩ Undo last action{undoStack.length > 1 ? ` (${undoStack.length})` : ""}</span>
+            <span style={{ fontSize: 12.5, color: t.soft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{undoStack[0].msg}</span>
           </button>
         )}
 
@@ -800,7 +853,7 @@ export default function App() {
 
                 <div className="stack" style={{ marginBottom: 18 }}>
                   {day.meals.map((m, i) => (
-                    <MealCard key={i} meal={m} log={dayLog(m.slot)} onOpen={setOpenMeal} onMark={mark} onReplace={replaceMeal} readOnly={weekOffset !== 0} />
+                    <MealCard key={i} meal={m} log={dayLog(m.slot)} onOpen={setOpenMeal} onMark={mark} onReplace={replaceMeal} readOnly={weekOffset !== 0} missing={missingFor(m, weekOffset, dayIdx)} />
                   ))}
                 </div>
 
