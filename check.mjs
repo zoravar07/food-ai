@@ -7,13 +7,13 @@
 // generation hides bugs at low sample sizes — 100+ is the bar. Exits non-zero on
 // any failure so it can gate a commit.
 import { calculateTargets } from "./src/lib/macroEngine.js";
-import { generateWeek, excludeDisliked, interpretRules, templates, usablePins } from "./src/lib/mealPlanner.js";
+import { generateWeek, excludeDisliked, interpretRules, templates, usablePins, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay } from "./src/lib/mealPlanner.js";
 import { buildGroceryList } from "./src/lib/groceryListGenerator.js";
 import { allIngredients, purchaseUnits } from "./src/lib/foodDatabase.js";
 
 const tg = calculateTargets({ age:19, height_cm:185, weight_kg:72.5, sex:"male", training_days:5, goal:"mild_cut" });
 const CAP = 65;
-const DISLIKES = (process.env.DISLIKES || "corn,salmon").split(",");
+const DISLIKES = (process.env.DISLIKES ?? "corn,salmon").split(",").filter(Boolean);
 const RULES = [{ text: "Burger on Fridays", kind: "standing" }];
 const N = Number(process.argv[2] || 150);
 
@@ -61,15 +61,26 @@ function checkWeek(w, label, pins) {
 // Mirrors App.jsx runAction's swap_meal path exactly.
 function aiSwap(plan, day, slot) {
   const di = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(day);
-  const opts = { ...base, pins: (base.pins || []).filter((p) => !(p.day === day && p.slot === slot)) };
+  const list = templates[slot.toLowerCase()] || [];
   const blockedHere = base.blocked?.[slot.toLowerCase()] || [];
-  const fresh = generateWeek(tg, CAP, 30, opts);
   const cur = plan[di].meals.find((m) => m.slot === slot);
-  const pick = (m) => m.slot === slot && !blockedHere.includes(m.id);
-  let rep = fresh[di].meals.find((m) => pick(m) && m.id !== cur?.id) || fresh[di].meals.find(pick);
-  if (rep && blockedHere.includes(rep.id)) rep = null;
-  if (!rep) return { plan, changed: false };
-  return { plan: plan.map((d, i) => i !== di ? d : { ...d, meals: d.meals.map((m) => m.slot === slot ? rep : m) }), changed: rep.id !== cur?.id };
+  const allowed = list.filter((t) => !blockedHere.includes(t.id));
+  const different = allowed.filter((t) => t.id !== cur?.id);
+  const candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5);
+  if (!candidates.length) return { plan, changed: false };
+
+  const withMeal = (tpl) => plan.map((d, i) => (i !== di ? d : setMealOnDay(d, slot, tpl, tg)));
+  const byTrim = (tpl) => { const w = trimToBudget(withMeal(tpl), tg, CAP); return { tpl, week: w, cost: weekCost(w) }; };
+  const byRebalance = (tpl) => {
+    const w = rebalanceAfterSwap(withMeal(tpl), tg, CAP, { protect: [{ day, slot }], pins: base.pins, blocked: base.blocked });
+    return { tpl, week: w, cost: weekCost(w) };
+  };
+  let picked = null, cheapest = null;
+  const consider = (t) => { if (!cheapest || t.cost < cheapest.cost) cheapest = t; return t.cost <= CAP; };
+  for (const c of candidates) if (consider(byTrim(c))) { picked = cheapest; break; }
+  if (!picked) for (const c of candidates) if (consider(byRebalance(c))) { picked = cheapest; break; }
+  if (!picked) picked = cheapest;
+  return { plan: picked.week, changed: picked.tpl.id !== cur?.id };
 }
 
 let swaps = 0, noops = 0, pinnedSwaps = 0;
@@ -81,6 +92,8 @@ for (let i = 0; i < N; i++) {
   for (const [day, slot] of [["Wed", "Dinner"], ["Fri", "Dinner"]]) {
     const r = aiSwap(w, day, slot);
     r.changed ? swaps++ : noops++;
+    const di2 = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(day);
+    if (r.changed && !r.plan[di2].meals.some((m) => m.slot === slot)) bad("swap vanished", `${day} ${slot}`);
     if (day === "Fri" && r.changed) pinnedSwaps++;
     // The swapped day's pin is deliberately released; every OTHER pin must hold.
     checkWeek(r.plan, `after swap ${day} ${slot}`, livePins.filter((p) => !(p.day === day && p.slot === slot)));
