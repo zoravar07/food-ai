@@ -135,3 +135,25 @@ create table if not exists rules (
   active boolean default true,
   created_at timestamptz default now()
 );
+
+-- ============ v3: shop state ============
+-- Dates already say which week a plan is for. What they cannot say is whether
+-- that week's shop has actually happened, and the Sunday rollover, the mid-week
+-- craving flow and the stale-pantry check all need to know.
+--   draft    - generated, not shopped for yet
+--   active   - shopped for, being eaten from
+--   archived - superseded by a newer plan for the same week
+alter table weeks add column if not exists status text default 'draft';
+alter table weeks add column if not exists shopped_at timestamptz;
+
+-- Plans that predate this column: keep the newest per week in play and archive
+-- the rest. Whether an old week was shopped is not knowable in retrospect, so
+-- nothing is marked active here — the app sets that on the next "Groceries done".
+update weeks w
+set status = 'archived'
+where exists (
+  select 1 from weeks n
+  where n.week_start = w.week_start and n.created_at > w.created_at
+);
+
+create index if not exists weeks_status_idx on weeks (status, week_start desc);
