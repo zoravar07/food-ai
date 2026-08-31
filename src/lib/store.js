@@ -177,6 +177,17 @@ export async function logMeal({ date, slot, status, mealName, kcal, protein, car
   return data;
 }
 
+/** Un-log a meal. Clearing only ever happened in React state before, so the row
+ *  survived in the database and came straight back on the next reload. */
+export async function clearMeal(date, slot) {
+  if (!supabase) {
+    memory.logs = memory.logs.filter((l) => !(l.log_date === date && l.slot === slot));
+    return;
+  }
+  const { error } = await supabase.from("meal_logs").delete().eq("log_date", date).eq("slot", slot);
+  if (error) throw error;
+}
+
 export async function getLogsForRange(startDate, endDate) {
   if (!supabase) return memory.logs.filter((l) => l.log_date >= startDate && l.log_date <= endDate);
   const { data, error } = await supabase
@@ -301,6 +312,21 @@ export async function consumeIngredients(items) {
     if (!row || row.category === "cupboard") continue;
     const next = Math.max(0, Number(row.quantity) - qty);
     await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: next > 0 && next < qty });
+  }
+}
+
+/** Put back what un-logging a meal means you didn't actually cook. Without this,
+ *  ticking a meal, un-ticking it and ticking it again drained the pantry twice
+ *  over — logging could only ever subtract. */
+export async function restoreIngredients(items) {
+  const pantry = await getPantry();
+  for (const [id, qty] of items) {
+    const row = pantry.find((p) => p.ingredient_id === id);
+    if (!row || row.category === "cupboard") continue;
+    const next = Number(row.quantity) + qty;
+    // Clearing `low` here would undo a deliberate "running low" tap, so it only
+    // lifts when the restored amount is genuinely back above what the meal used.
+    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low && next < qty });
   }
 }
 
