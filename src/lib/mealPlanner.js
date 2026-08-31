@@ -275,8 +275,17 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], block
  * @param {{targetKcal:number, protein:number}} targets
  * @param {number} budgetCap - weekly grocery budget ceiling in £
  */
+/** A dislike outranks a standing rule. "Burger every Friday" plus "no avocado"
+ *  kept planting the avocado burger every single week: pins were applied, and
+ *  then re-asserted after budget swaps, without ever consulting the block list.
+ *  Invariant 3 is absolute, so a pin whose template is blocked is dropped. */
+export function usablePins(pins = [], blocked = {}) {
+  return pins.filter((p) => !(blocked[(p.slot || "").toLowerCase()] || []).includes(p.templateId));
+}
+
 function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
-  const { pins = [], favour = [], blocked = {} } = options;
+  const { favour = [], blocked = {} } = options;
+  const pins = usablePins(options.pins, blocked);
   const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
   const expensiveCount = {};
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -578,7 +587,7 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
   // build never got the chance to re-check, and a lower trim floor squeezes what's
   // left. Never makes the week costlier, so it's always a fair swap for `best`.
   if (!bestCompliant && best) {
-    let salvage = enforceBudget(best, targets, budgetCap, 20, options.pins || [], options.blocked || {});
+    let salvage = enforceBudget(best, targets, budgetCap, 20, usablePins(options.pins, options.blocked), options.blocked || {});
     for (let pass = 0; pass < 20; pass++) {
       if (buildGroceryList(salvage).estimatedTotal <= budgetCap) break;
       salvage = salvage.map((day) => {

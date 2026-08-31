@@ -18,6 +18,17 @@ function aisleFor(id) {
   return "cupboard";
 }
 
+const PLURALS = { "sweet potato": "sweet potatoes", "potato": "potatoes", "quarter melon": "quarter melons", "head": "heads", "bunch": "bunches", "punnet": "punnets", "box of 12": "boxes of 12", "pack of 8": "packs of 8", "pack of 6": "packs of 6" };
+
+/** How many, and how big. A tub of yoghurt and a carton of coconut water both
+ *  used to read "1 tub" / "1 carton", which tells you nothing in the aisle —
+ *  units carrying a `size` say what to reach for: "1 × 1kg tub". */
+function sized(count, pu) {
+  if (pu.size) return `${count} × ${pu.size} ${pu.unit}`;
+  const plural = count === 1 ? pu.unit : (PLURALS[pu.unit] || (pu.unit.endsWith("s") ? pu.unit : `${pu.unit}s`));
+  return `${count} ${plural}`;
+}
+
 /** Convert a raw gram requirement into how you'd actually buy it. */
 function toPurchaseUnit(id, grams) {
   const pu = purchaseUnits[id];
@@ -31,15 +42,13 @@ function toPurchaseUnit(id, grams) {
 
   // Store-cupboard staples — buy the whole jar/bag once, it lasts weeks
   if (pu?.bulk) {
-    return { display: `1 ${pu.unit}`, buyGrams: pu.perUnit, packs: 1, note: "lasts several weeks" };
+    return { display: sized(1, pu), buyGrams: pu.perUnit, packs: 1, note: "lasts several weeks" };
   }
 
   // Countable produce — pieces, not grams
   if (pu?.perUnit && pu.unit !== "g") {
     const count = Math.max(1, Math.round(grams / pu.perUnit));
-    const PLURALS = { "sweet potato": "sweet potatoes", "potato": "potatoes", "quarter melon": "quarter melons", "head": "heads", "bunch": "bunches", "punnet": "punnets", "box of 12": "boxes of 12", "pack of 8": "packs of 8", "pack of 6": "packs of 6" };
-    const plural = count === 1 ? pu.unit : (PLURALS[pu.unit] || (pu.unit.endsWith("s") ? pu.unit : `${pu.unit}s`));
-    return { display: `${count} ${plural}`, buyGrams: count * pu.perUnit, packs: count };
+    return { display: sized(count, pu), buyGrams: count * pu.perUnit, packs: count };
   }
 
   // Sold by weight — round up to a sensible pack
