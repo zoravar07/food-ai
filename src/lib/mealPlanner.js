@@ -212,11 +212,93 @@ function buildDayMeals(b, l, s, d, targets, dessert) {
 // After the week is built, if it costs more than the budget, repeatedly swap the
 // single priciest lunch/dinner for the cheapest available alternative in that slot
 // until the whole week's grocery total fits — or we run out of cheaper options.
-function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], blocked = {}) {
+/** What the week actually costs to shop for. `leftovers` is what's already in the
+ *  pantry; passing it makes the cap measure real spend rather than a full shop.
+ *  Everything that checks the budget goes through here so the basis can't drift. */
+export const weekCost = (week, leftovers = {}) => buildGroceryList(week, leftovers).estimatedTotal;
+
+/** Shave the priciest protein portions until the shop fits. Only portions move,
+ *  never which meal sits on which day, so this is safe to run after pins have
+ *  been asserted and over a meal the user explicitly asked for. */
+export function trimToBudget(week, targets, budgetCap, { leftovers = {}, floor = 130, passes = 25 } = {}) {
+  let planned = week;
+  for (let pass = 0; pass < passes; pass++) {
+    if (weekCost(planned, leftovers) <= budgetCap) break;
+    planned = planned.map((day) => {
+      const meals = day.meals.map((m) => {
+        if (!m.proteinAnchor) return m;
+        const ing = lookup(m.proteinAnchor);
+        if (!ing || ing.unit === "each" || ing.unit === "scoop") return m;
+        const unitCost = estimateItemCost(m.proteinAnchor, 100);
+        const cutRate = unitCost > 2 ? 0.88 : unitCost > 1 ? 0.93 : 0.97; // trim pricey proteins faster
+        const items = m.items.map(([id, qty]) =>
+          id === m.proteinAnchor ? [id, Math.max(floor, Math.round((qty * cutRate) / 10) * 10)] : [id, qty]
+        );
+        return { ...m, items, ...macrosForItems(items) };
+      });
+      const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
+      return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+    });
+  }
+  return planned;
+}
+
+/** Cheapest template the rules allow in a slot. Shared by the last-resort paths
+ *  in both generation and swap rebalancing so they agree on what "cheapest" is. */
+export function cheapestTemplate(slot, blocked = {}) {
+  const all = templates[slot] || [];
+  const allowed = all.filter((t) => !(blocked[slot] || []).includes(t.id));
+  const list = allowed.length ? allowed : all;
+  return [...list].sort((a, b) => templateCost(a.items) - templateCost(b.items))[0];
+}
+
+/** Rebuild one day with `tpl` in `slot`, rescaling the day's portions around it
+ *  and leaving the other meals alone. Same mechanism the pin re-assertion uses,
+ *  so a swapped-in meal is portioned exactly like a generated one. */
+export function setMealOnDay(day, slot, tpl, targets) {
+  const at = (s) => (slot === s ? tpl : day.meals.find((m) => m.slot === s));
+  const { meals, totals } = buildDayMeals(at("Breakfast"), at("Lunch"), at("Snack"), at("Dinner"), targets, at("Dessert"));
+  return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+}
+
+/** Bring a week back under the cap around a meal the user explicitly chose.
+ *  `protect` entries ({day, slot}) are never swapped out, so his pick and his
+ *  standing rules both survive while the rest of the week gives up the money.
+ *  Only worth reaching for when portion trimming alone was not enough — it
+ *  changes meals on OTHER days, which is surprising if it happens silently. */
+export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pins = [], blocked = {}, leftovers = {} } = {}) {
+  const held = [...usablePins(pins, blocked), ...protect];
+  const swapped = enforceBudget(week, targets, budgetCap, 20, held, blocked, leftovers);
+  let out = trimToBudget(swapped, targets, budgetCap, { leftovers, floor: 100, passes: 30 });
+  if (weekCost(out, leftovers) <= budgetCap) return out;
+
+  // enforceBudget only ever swaps in a template not already on the menu, to keep
+  // the week varied. When the allowed set is small that runs out of room. Give up
+  // variety one meal at a time, priciest first, and stop the moment it fits —
+  // a slightly duller week that fits beats a better one that doesn't.
+  const isHeld = (day, slot) => held.some((h) => h.day === day && h.slot === slot);
+  const candidates = [];
+  out.forEach((day, dayIdx) => day.meals.forEach((m) => {
+    if (!["Breakfast", "Lunch", "Snack", "Dinner"].includes(m.slot)) return;
+    if (isHeld(day.day, m.slot)) return;
+    candidates.push({ dayIdx, slot: m.slot, cost: templateCost(m.items) });
+  }));
+  candidates.sort((a, b) => b.cost - a.cost);
+
+  for (const c of candidates) {
+    const tpl = cheapestTemplate(c.slot.toLowerCase(), blocked);
+    if (!tpl || out[c.dayIdx].meals.find((m) => m.slot === c.slot)?.id === tpl.id) continue;
+    const next = out.map((d, i) => (i !== c.dayIdx ? d : setMealOnDay(d, c.slot, tpl, targets)));
+    out = trimToBudget(next, targets, budgetCap, { leftovers, floor: 100, passes: 30 });
+    if (weekCost(out, leftovers) <= budgetCap) break;
+  }
+  return out;
+}
+
+function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], blocked = {}, leftovers = {}) {
   let current = week;
   for (let i = 0; i < maxSwaps; i++) {
-    const grocery = buildGroceryList(current);
-    if (grocery.estimatedTotal <= budgetCap) break;
+    if (weekCost(current, leftovers) <= budgetCap) break;
 
     // Find the most expensive lunch/dinner in the week
     let worst = null;
@@ -284,7 +366,7 @@ export function usablePins(pins = [], blocked = {}) {
 }
 
 function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
-  const { favour = [], blocked = {} } = options;
+  const { favour = [], blocked = {}, leftovers = {} } = options;
   const pins = usablePins(options.pins, blocked);
   const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
   const expensiveCount = {};
@@ -327,13 +409,13 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
     return { day, meals, totals };
   });
 
-  let planned = enforceBudget(rawWeek, targets, budgetCap, 20, pins, blocked);
+  let planned = enforceBudget(rawWeek, targets, budgetCap, 20, pins, blocked, leftovers);
 
   // Last resort: shave portions of the priciest *protein* items a little at a time.
   // Protein target has slack (we typically overshoot ~185g vs 174g), so small trims
   // stay on-target nutritionally while pulling the shop under budget.
   for (let pass = 0; pass < 8; pass++) {
-    if (buildGroceryList(planned).estimatedTotal <= budgetCap) break;
+    if (weekCost(planned, leftovers) <= budgetCap) break;
     planned = planned.map((day) => {
       const meals = day.meals.map((m) => {
         if (!m.proteinAnchor) return m;
@@ -385,7 +467,7 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
       // Would this bump push the whole week over budget? Check the real total,
       // not just this day — only keep it if it doesn't.
       const snapshot = runningWeek.map((d, i) => (i === dayIdx ? { ...d, meals: nextMeals } : d));
-      if (buildGroceryList(snapshot).estimatedTotal > budgetCap) break;
+      if (weekCost(snapshot, leftovers) > budgetCap) break;
       meals = nextMeals;
     }
     const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
@@ -396,27 +478,10 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
 
   // If the top-up nudged us back over budget, trim protein anchors — cutting the
   // priciest proteins hardest, and only down to a floor that keeps protein on target.
-  for (let pass = 0; pass < 25; pass++) {
-    if (buildGroceryList(planned).estimatedTotal <= budgetCap) break;
-    planned = planned.map((day) => {
-      const meals = day.meals.map((m) => {
-        if (!m.proteinAnchor) return m;
-        const ing = lookup(m.proteinAnchor);
-        if (ing.unit === "each" || ing.unit === "scoop") return m;
-        const unitCost = estimateItemCost(m.proteinAnchor, 100);
-        const cutRate = unitCost > 2 ? 0.88 : unitCost > 1 ? 0.93 : 0.97; // trim pricey proteins faster
-        const items = m.items.map(([id, qty]) =>
-          id === m.proteinAnchor ? [id, Math.max(130, Math.round((qty * cutRate) / 10) * 10)] : [id, qty]
-        );
-        return { ...m, items, ...macrosForItems(items) };
-      });
-      const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-      return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
-    });
-  }
+  planned = trimToBudget(planned, targets, budgetCap, { leftovers });
 
-  // Re-assert pins after budget swaps (which may have replaced them), then let
-  // the top-up and trim passes below run normally over the result.
+  // Re-assert pins last, since budget swaps may have replaced them. This is the
+  // final pass over the week, so anything it disturbs has to be settled here.
   if (pins.length) {
     planned = planned.map((day) => {
       const relevant = pins.filter((p) => p.day === day.day);
@@ -442,6 +507,11 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
       const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
       return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
     });
+
+    // Re-asserting a pin rebuilds that whole day at full portions, throwing away
+    // the trim that had just brought the week under the cap — and nothing
+    // re-checked afterwards. Trim again so the pin survives AND the shop fits.
+    planned = trimToBudget(planned, targets, budgetCap, { leftovers });
   }
 
   return planned;
@@ -452,8 +522,8 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
  * Scores a candidate week: budget compliance first, then macro accuracy, then variety.
  * Lower is better.
  */
-function scoreWeek(week, targets, budgetCap, favour = []) {
-  const cost = buildGroceryList(week).estimatedTotal;
+function scoreWeek(week, targets, budgetCap, favour = [], leftovers = {}) {
+  const cost = weekCost(week, leftovers);
   let score = 0;
 
   // Over budget is heavily penalised; under budget is fine.
@@ -557,9 +627,38 @@ export function interpretRules(rules = []) {
   return { pins, favour, avoid };
 }
 
+/** The cheapest week the rules allow: least expensive permitted template in every
+ *  slot, pins honoured, then trimmed. It is the floor of what a week can cost, so
+ *  it is the last resort when no candidate fitted — never used otherwise, because
+ *  it is deliberately monotonous. */
+function cheapestWeek(targets, budgetCap, options = {}) {
+  const { blocked = {}, leftovers = {} } = options;
+  const pins = usablePins(options.pins, blocked);
+  const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner", "dessert"].map((sl) => [sl, cheapestTemplate(sl, blocked)]));
+
+  const week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+    const pinned = (slot) => {
+      const pin = pins.find((p) => p.day === day && p.slot === slot);
+      return pin ? (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null : null;
+    };
+    const { meals, totals } = buildDayMeals(
+      pinned("Breakfast") || pick.breakfast,
+      pinned("Lunch") || pick.lunch,
+      pinned("Snack") || pick.snack,
+      pinned("Dinner") || pick.dinner,
+      targets,
+      pinned("Dessert") || pick.dessert
+    );
+    return { day, meals, totals };
+  });
+
+  return trimToBudget(week, targets, budgetCap, { leftovers, floor: 100, passes: 40 });
+}
+
 export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {}) {
   // Pins narrow the search space, so allow more tries to find an affordable fit.
   if (options.pins?.length) attempts = Math.max(attempts, 120);
+  const leftovers = options.leftovers || {};
   let best = null, bestScore = Infinity;
   let bestCompliant = null, bestCompliantScore = Infinity;
 
@@ -568,8 +667,8 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
     // Cost the candidate as it will actually be shopped for — pins already
     // applied inside generateCandidateWeek — so we never accept a week that
     // only looks affordable before the user's rules are honoured.
-    const cost = buildGroceryList(candidate).estimatedTotal;
-    const sc = scoreWeek(candidate, targets, budgetCap, options.favour || []);
+    const cost = weekCost(candidate, leftovers);
+    const sc = scoreWeek(candidate, targets, budgetCap, options.favour || [], leftovers);
 
     if (sc < bestScore) { bestScore = sc; best = candidate; }
     if (cost <= budgetCap && sc < bestCompliantScore) {
@@ -587,24 +686,15 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
   // build never got the chance to re-check, and a lower trim floor squeezes what's
   // left. Never makes the week costlier, so it's always a fair swap for `best`.
   if (!bestCompliant && best) {
-    let salvage = enforceBudget(best, targets, budgetCap, 20, usablePins(options.pins, options.blocked), options.blocked || {});
-    for (let pass = 0; pass < 20; pass++) {
-      if (buildGroceryList(salvage).estimatedTotal <= budgetCap) break;
-      salvage = salvage.map((day) => {
-        const meals = day.meals.map((m) => {
-          if (!m.proteinAnchor) return m;
-          const ing = lookup(m.proteinAnchor);
-          if (ing.unit === "each" || ing.unit === "scoop") return m;
-          const unitCost = estimateItemCost(m.proteinAnchor, 100);
-          const cutRate = unitCost > 2 ? 0.85 : unitCost > 1 ? 0.9 : 0.95; // harder than the standard trim floor
-          const items = m.items.map(([id, qty]) =>
-            id === m.proteinAnchor ? [id, Math.max(100, Math.round((qty * cutRate) / 10) * 10)] : [id, qty]
-          );
-          return { ...m, items, ...macrosForItems(items) };
-        });
-        const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-        return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
-      });
+    let salvage = enforceBudget(best, targets, budgetCap, 20, usablePins(options.pins, options.blocked), options.blocked || {}, leftovers);
+    salvage = trimToBudget(salvage, targets, budgetCap, { leftovers, floor: 100, passes: 20 });
+
+    // Still over. Invariant 2 says prefer a worse week that fits over a better
+    // one that doesn't, so fall back to the cheapest week the rules allow —
+    // which always exists — rather than handing back something over budget.
+    if (weekCost(salvage, leftovers) > budgetCap) {
+      const floorWeek = cheapestWeek(targets, budgetCap, options);
+      return weekCost(floorWeek, leftovers) <= weekCost(salvage, leftovers) ? floorWeek : salvage;
     }
     best = salvage;
   }

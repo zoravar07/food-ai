@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek, templates, interpretRules, excludeDisliked } from "./lib/mealPlanner.js";
+import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
@@ -483,38 +483,63 @@ export default function App() {
     if ((a.type === "swap_meal" || a.type === "set_meal") && plan) {
       const di = DAYS.indexOf(a.day); if (di < 0) return;
       const slotKey = (a.slot || "").toLowerCase();
-      // Swaps used to source their replacement from a plain generateWeek() with
-      // no options, so an AI-driven swap could quietly plant a disliked
-      // ingredient or overwrite a standing rule. Same constraints as makePlan.
-      const base = { ...interpretRules(rules), blocked: excludeDisliked(profile.dislikes || []) };
-      // Asking for this slot to change outranks a standing rule sitting on it,
-      // for this occurrence only — otherwise the generator hands back the pinned
-      // meal and the swap silently does nothing. Every other pin still holds.
-      const opts = { ...base, pins: (base.pins || []).filter((p) => !(p.day === a.day && p.slot === a.slot)) };
-      const blockedHere = base.blocked?.[slotKey] || [];
-      let rep = null;
+      const list = templates[slotKey] || [];
+      if (!list.length) return;
 
+      // Candidates come from the template list, not from a freshly generated week.
+      // A generated week reuses the same few cheap meals, so it often offered a
+      // single alternative — and if that one was expensive the swap had nowhere
+      // to go. Dislikes are filtered here so no swap can plant a blocked meal.
+      const blockedHere = excludeDisliked(profile.dislikes || [])[slotKey] || [];
+      const standing = interpretRules(rules).pins || [];
+      const cap = profile.budget_cap || 65;
+      const cur = plan[di].meals.find((m) => m.slot === a.slot);
+
+      let candidates;
       if (a.type === "set_meal" && a.templateId) {
-        // The model can name a template directly, so the block list has to be
-        // checked here too rather than relied on inside the generator.
         if (blockedHere.includes(a.templateId)) {
           flash(`${a.templateId.replace(/_/g, " ")} uses something you won't eat`);
           return;
         }
-        const fresh = generateWeek(targets, profile.budget_cap || 65, 30, opts);
-        rep = fresh.flatMap((d) => d.meals).find((m) => m.id === a.templateId);
+        const tpl = list.find((t) => t.id === a.templateId);
+        if (!tpl) { flash("Couldn't find that meal"); return; }
+        candidates = [tpl];
       } else {
-        const fresh = generateWeek(targets, profile.budget_cap || 65, 30, opts);
-        const cur = plan[di].meals.find((m) => m.slot === a.slot);
-        const pick = (m) => m.slot === a.slot && !blockedHere.includes(m.id);
-        rep = fresh[di].meals.find((m) => pick(m) && m.id !== cur?.id) || fresh[di].meals.find(pick);
+        const allowed = list.filter((t) => !blockedHere.includes(t.id));
+        const different = allowed.filter((t) => t.id !== cur?.id);
+        // Shuffled so an affordable swap is still a varied one, rather than always
+        // landing on the single cheapest meal in the slot.
+        candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5);
       }
-      // A replacement that slipped through anyway is dropped rather than planned.
-      if (rep && blockedHere.includes(rep.id)) rep = null;
-      if (!rep) { flash("Couldn't find a swap that fits your rules"); return; }
+      if (!candidates.length) { flash("Couldn't find a swap that fits your rules"); return; }
+
+      const withMeal = (tpl) => plan.map((d, i) => (i !== di ? d : setMealOnDay(d, a.slot, tpl, targets)));
+      // Two escalating attempts. Trimming portions only touches the meals already
+      // on the plan; rebalancing swaps meals on OTHER days, so it is a last resort
+      // and it gets called out in the toast rather than happening quietly.
+      const byTrim = (tpl) => { const w = trimToBudget(withMeal(tpl), targets, cap); return { tpl, week: w, cost: weekCost(w) }; };
+      const byRebalance = (tpl) => {
+        const w = rebalanceAfterSwap(withMeal(tpl), targets, cap, {
+          protect: [{ day: a.day, slot: a.slot }], pins: standing, blocked: excludeDisliked(profile.dislikes || []),
+        });
+        return { tpl, week: w, cost: weekCost(w), moved: true };
+      };
+
+      let picked = null, cheapest = null;
+      const consider = (t) => { if (!cheapest || t.cost < cheapest.cost) cheapest = t; return t.cost <= cap; };
+      for (const c of candidates) if (consider(byTrim(c))) { picked = cheapest; break; }
+      if (!picked) for (const c of candidates) if (consider(byRebalance(c))) { picked = cheapest; break; }
+      // Nothing fits, so take the least bad and say so rather than silently
+      // blowing the cap — invariant 2 is the one he never wants broken quietly.
+      if (!picked) picked = cheapest;
+      if (!picked) { flash("Couldn't find a swap that fits your rules"); return; }
+
       const before = plan;
-      await applyPlan(plan.map((d, i) => i !== di ? d : { ...d, meals: d.meals.map((m) => m.slot === a.slot ? rep : m) }));
-      flash(`${a.day} ${a.slot} updated`, () => setWeeks((w) => ({ ...w, [wsKey]: before })));
+      await applyPlan(picked.week);
+      const note = picked.cost > cap ? ` — £${picked.cost.toFixed(2)}, over your £${cap} cap`
+        : picked.moved ? " — other meals adjusted to stay in budget" : "";
+      // Undo used to restore React state only, leaving the swap in the database.
+      flash(`${a.day} ${a.slot} updated${note}`, () => applyPlan(before));
       return;
     }
     if (a.type === "add_grocery") { try { await store.addCustomItem(a.name, a.quantity || ""); setCustom(await store.getCustomItems()); flash(`Added ${a.name}`); } catch {} return; }
