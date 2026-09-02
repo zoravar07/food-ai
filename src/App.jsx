@@ -7,6 +7,7 @@ import { recipes } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
 import { DAYS, iso, weekStartFor, dateForDay, weekLabel } from "./lib/weeks.js";
+import { shopView } from "./lib/shopView.js";
 
 const t = {
   bg: "#0D1117", panel: "#151B24", card: "#1B222D", cardHi: "#232C3A",
@@ -140,26 +141,36 @@ function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly, missing = []
         style={{ background: "none", border: "none", padding: "16px 0 16px 16px", alignSelf: "flex-start" }}>
         <div style={{ width: 26, height: 26, borderRadius: 8, border: `2px solid ${done ? t.teal : t.line}`, background: done ? t.teal : "transparent", color: t.bg, fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{done ? "✓" : ""}</div>
       </button>
-      <div onClick={() => onOpen(meal)} style={{ flex: 1, padding: "16px 12px", minWidth: 0, cursor: "pointer" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", marginBottom: 3 }}>
+      <div style={{ flex: 1, padding: "14px 12px", minWidth: 0 }}>
+        {/* Slot, time and macros are all attributes of the meal, so they share
+            one scannable line. The numbers he actually reads are weighted up so
+            they stay primary next to the dim prep time. */}
+        <div style={{ display: "flex", gap: 7, alignItems: "baseline", flexWrap: "wrap", marginBottom: 4 }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".07em" }}>{meal.slot}</span>
-          {meal.time && <span style={{ fontSize: 11.5, color: t.dim }}>{meal.time} min</span>}
-          {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>ate out</span>}
+          {meal.time && <span style={{ fontSize: 11.5, color: t.dim }}>· {meal.time} min</span>}
+          <span style={{ fontSize: 12.5, color: t.text, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>
+            · {Math.round(out ? (log?.kcal || 0) : meal.kcal)} kcal · {Math.round(out ? (log?.protein || 0) : meal.protein)}g protein
+          </span>
+          {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>· ate out</span>}
           {missing.length > 0 && !out && (
             <span style={{ fontSize: 11.5, color: t.coral, fontWeight: 600 }}>
-              out of {missing.join(" & ").toLowerCase()}
+              · out of {missing.join(" & ").toLowerCase()}
             </span>
           )}
         </div>
-        <div style={{ fontSize: 16.5, fontWeight: 600, marginBottom: 4, lineHeight: 1.25 }}>{out && log?.meal_name ? log.meal_name : meal.name}</div>
-        <div style={{ fontSize: 13, color: t.soft }}>
-          {out ? `${Math.round(log?.kcal || 0)} kcal · ${Math.round(log?.protein || 0)}g protein` : `${Math.round(meal.kcal)} kcal · ${Math.round(meal.protein)}g protein`}
-          {!out && <span style={{ color: t.peri, marginLeft: 8 }}>recipe →</span>}
-          {!readOnly && !out && (
-            <button onClick={(e) => { e.stopPropagation(); onReplace(meal); }}
-              style={{ background: "none", border: "none", color: t.violet, fontSize: 13, fontWeight: 600, padding: 0, marginLeft: 10 }}>replace</button>
-          )}
+
+        <div onClick={() => onOpen(meal)} style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.25, cursor: "pointer" }}>
+          {out && log?.meal_name ? log.meal_name : meal.name}
         </div>
+
+        {!out && (
+          <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
+            <Btn size="sm" kind="solid" style={{ flex: 1 }} onClick={(e) => { e.stopPropagation(); onOpen(meal); }}>Recipe</Btn>
+            {!readOnly && (
+              <Btn size="sm" kind="solid" style={{ flex: 1, color: t.violet }} onClick={(e) => { e.stopPropagation(); onReplace(meal); }}>Replace</Btn>
+            )}
+          </div>
+        )}
       </div>
       {/* With a real estimate on the row this button EDITS it rather than
           toggling it off — tapping it used to delete the macros and drop the
@@ -202,6 +213,7 @@ export default function App() {
   const [overwrite, setOverwrite] = useState(null);
   const [undoStack, setUndoStack] = useState([]);   // most recent undoable action first
   const undoRef = useRef([]);                      // same list, readable synchronously
+  const [undoIdx, setUndoIdx] = useState(0);       // which change the arrows are parked on
   const [pantryCheck, setPantryCheck] = useState(null);
   const [shopped, setShopped] = useState([]);      // week_starts already shopped for
   const [booted, setBooted] = useState(false);
@@ -220,7 +232,21 @@ export default function App() {
   // you'd already shopped.
   const shopKey = weekStartFor(shopOffset);
   const shopPlan = weeks[shopKey] || null;
-  const isShopped = (offset) => shopped.includes(weekStartFor(offset));
+  const shopRow = (offset) => shopped.find((r) => r.week_start === weekStartFor(offset)) || null;
+  const isShopped = (offset) => Boolean(shopRow(offset));
+
+  // Everything the Shop tab shows and allows comes out of one pure function, so
+  // the cursor and the clock can't quietly get mixed up in a JSX ternary.
+  // weekStartFor(0) is the ONLY place the real week enters this decision.
+  const view = shopView({
+    weekStart: shopKey,
+    realWeekStart: weekStartFor(0),
+    label: weekLabel(shopOffset),
+    hasPlan: Boolean(shopPlan),
+    bought: isShopped(shopOffset),
+    boughtOn: shopRow(shopOffset)?.shopped_at?.slice(0, 10) || null,
+    itemCount: grocery?.items.length || 0,
+  });
   // Ingredients the pantry says are gone. Something never bought has no pantry
   // row at all — that's unknown, not out, so it is deliberately not flagged.
   const outOfStock = new Set(
@@ -277,7 +303,7 @@ export default function App() {
       const done = await store.getShoppedWeeks().catch(() => []);
       setShopped(done);
       // Open on the shop you still owe. Once this week is bought, that's next week.
-      setShopOffset(done.includes(weekStartFor(0)) ? 1 : 0);
+      setShopOffset(done.some((r) => r.week_start === weekStartFor(0)) ? 1 : 0);
       await Promise.all([loadPantry(), loadRules(), loadLogs(), loadExtras()]);
     } catch (e) { console.error(e); await makePlan(0, store.DEFAULT_PROFILE); }
     setBooted(true);
@@ -307,18 +333,26 @@ export default function App() {
     if (undo) {
       undoRef.current = [{ msg, fn: undo }, ...undoRef.current].slice(0, 5);
       setUndoStack(undoRef.current);
+      setUndoIdx(0);   // a new change always lands as the newest
+
     }
     setTimeout(() => setToast((cur) => (cur?.msg === msg ? null : cur)), undo ? 9000 : 2600);
   }, []);
 
-  /** Undo the most recent undoable action and drop it off the stack. */
-  const runUndo = useCallback(async () => {
+  /** Rewind to the selected change: undo everything from the newest back to and
+   *  including it, newest first. Deliberately not a cherry-pick — each undo
+   *  entry restores a snapshot, so applying an old one while newer changes stand
+   *  would write stale data over them, which is the exact clobbering this app
+   *  has been cleared of. Stepping back picks how far to rewind, not what to skip. */
+  const rewind = useCallback(async (upto) => {
     setToast(null);
-    const [top, ...rest] = undoRef.current;
-    undoRef.current = rest;
-    setUndoStack(rest);
-    if (top?.fn) await top.fn();
+    const entries = undoRef.current.slice(0, upto + 1);
+    undoRef.current = undoRef.current.slice(upto + 1);
+    setUndoStack(undoRef.current);
+    setUndoIdx(0);
+    for (const e of entries) { try { await e.fn(); } catch {} }
   }, []);
+  const runUndo = useCallback(() => rewind(0), [rewind]);
 
   async function refreshGrocery(p, he = haveEnough) {
     if (!p) return setGrocery(null);
@@ -333,13 +367,17 @@ export default function App() {
   // rather than leaving the Shop tab empty.
   async function ensureShopPlan(offset) {
     const key = weekStartFor(offset);
-    if (weeks[key] || autoPlanned.current.has(key)) return;
-    autoPlanned.current.add(key);
+    if (weeks[key]) return;
     const stored = await store.getWeek(key).catch(() => null);
     if (stored?.plan) { setWeeks((w) => ({ ...w, [key]: stored.plan })); return; }
+    // Only the draft builds itself. Generating for any week he merely browsed to
+    // would cost half a second a tap and would invent history for past weeks —
+    // everywhere else offers a Generate button instead.
+    if (offset !== draftOffset || autoPlanned.current.has(key)) return;
+    autoPlanned.current.add(key);
     await makePlan(offset);
   }
-  useEffect(() => { if (booted) ensureShopPlan(shopOffset); /* eslint-disable-next-line */ }, [booted, shopOffset]);
+  useEffect(() => { if (booted) ensureShopPlan(shopOffset); /* eslint-disable-next-line */ }, [booted, shopOffset, draftOffset]);
 
   // Standing rules, dislikes and the budget only affect food not yet bought, so
   // a change rebuilds the draft alone. Debounced, because tapping through
@@ -358,7 +396,7 @@ export default function App() {
     lastSettings.current = settingsSig;
     const t = setTimeout(() => {
       const key = weekStartFor(draftOffset);
-      if (!weeks[key] || shopped.includes(key) || busy) return;
+      if (!weeks[key] || shopped.some((r) => r.week_start === key) || busy) return;
       makePlan(draftOffset, profile, { quiet: true });
     }, 3000);
     return () => clearTimeout(t);
@@ -504,7 +542,10 @@ export default function App() {
   async function pantryAction(id, state) {
     const before = pantry.find((x) => x.ingredient_id === id);
     try { await store.markPantry(id, state); await loadPantry(); } catch {}
-    const label = state === "out" ? "Marked as run out" : state === "low" ? "Marked running low" : "Marked as plenty";
+    // Name the item: the Changes control shows this text, and "Marked as run out"
+    // on its own tells you nothing about what you'd be undoing.
+    const what = before?.name || "item";
+    const label = state === "out" ? `${what} marked run out` : state === "low" ? `${what} running low` : `${what} marked plenty`;
     flash(label, before ? async () => {
       await store.setPantryItem(id, before.name, before.quantity, before.unit, { category: before.category, low: before.low });
       loadPantry();
@@ -547,6 +588,10 @@ export default function App() {
     // that does, so the two can't both generate for the same week.
     setShopOffset(Math.min(1, shopOffset + 1));
     flash(`${picked.length} items added to your pantry`, async () => {
+      // The shop is undone in full: the week stops counting as bought, and the
+      // Shop tab goes back to it rather than stranding you on next week.
+      try { await store.unmarkWeekShopped(shopKey); await loadShopped(); } catch {}
+      setShopOffset(shopOffset);
       // Undo used to delete the pantry rows outright, so 300g of chicken you
       // already had before the shop vanished with it. Put back what was there.
       for (const it of picked) {
@@ -653,7 +698,7 @@ export default function App() {
         // "Add it to next week" should change next week, not wait for the next
         // time he happens to regenerate. Never touches a week already bought for.
         const key = weekStartFor(draftOffset);
-        if (!shopped.includes(key)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
+        if (!shopped.some((r) => r.week_start === key)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
         else flash("Craving noted");
       } catch {}
       return;
@@ -789,30 +834,49 @@ export default function App() {
           </div>
         </header>
 
-        {/* Ticking the wrong thing off in a shop is easy and the toast is gone
-            by the time you notice, so the last undoable action stays reachable
-            on both tabs where that happens. */}
-        {undoStack.length > 0 && (tab === "groceries" || tab === "pantry") && (
-          <button onClick={runUndo}
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: t.card, border: `1px solid ${t.line}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14, color: t.text, fontFamily: "inherit" }}>
-            <span style={{ fontSize: 13.5, fontWeight: 600 }}>↩ Undo last action{undoStack.length > 1 ? ` (${undoStack.length})` : ""}</span>
-            <span style={{ fontSize: 12.5, color: t.soft, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{undoStack[0].msg}</span>
-          </button>
+        {/* Recent changes, on every tab where something undoable happens —
+            replacing a meal is a Plan-tab action, so it belongs here too. The
+            arrows browse; Undo rewinds to wherever they're parked. */}
+        {undoStack.length > 0 && ["groceries", "pantry", "plan"].includes(tab) && (
+          <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "10px 12px 12px", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".1em" }}>Changes</span>
+              {undoStack.length > 1 && (
+                <span style={{ fontSize: 11.5, color: t.dim, fontFamily: "'JetBrains Mono',monospace" }}>{undoIdx + 1} of {undoStack.length}</span>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {/* ← steps to older changes, → back towards the newest. */}
+              <button onClick={() => setUndoIdx((i) => Math.min(undoStack.length - 1, i + 1))}
+                disabled={undoIdx >= undoStack.length - 1}
+                style={{ background: "none", border: "none", color: undoIdx >= undoStack.length - 1 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx >= undoStack.length - 1 ? .35 : 1 }}>‹</button>
+              <span style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {undoStack[undoIdx]?.msg}
+              </span>
+              <button onClick={() => setUndoIdx((i) => Math.max(0, i - 1))}
+                disabled={undoIdx === 0}
+                style={{ background: "none", border: "none", color: undoIdx === 0 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx === 0 ? .35 : 1 }}>›</button>
+            </div>
+            <Btn size="sm" kind="solid" style={{ width: "100%", marginTop: 9 }} onClick={() => rewind(undoIdx)}>
+              {undoIdx === 0 ? "Undo" : `Undo last ${undoIdx + 1} changes`}
+            </Btn>
+          </div>
         )}
 
         {/* ---------- PLAN ---------- */}
         {tab === "plan" && (
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 16, background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: 6 }}>
-              <Btn size="sm" kind="ghost" style={{ border: "none" }} onClick={() => { setWeekOffset((o) => o - 1); loadWeekIfNeeded(weekOffset - 1); }}>←</Btn>
+              <Btn size="sm" kind="ghost" style={{ border: "none", opacity: weekOffset <= -8 ? .3 : 1 }}
+                onClick={() => { if (weekOffset > -8) { setWeekOffset((o) => o - 1); loadWeekIfNeeded(weekOffset - 1); } }}>←</Btn>
               <div style={{ textAlign: "center", flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 700 }}>{weekLabel(weekOffset)}</div>
                 <div style={{ fontSize: 11.5, color: t.dim }}>
                   {dateForDay(weekOffset, 0).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {dateForDay(weekOffset, 6).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                 </div>
               </div>
-              <Btn size="sm" kind="ghost" style={{ border: "none", opacity: weekOffset >= 1 ? .3 : 1 }}
-                onClick={() => { if (weekOffset < 1) { setWeekOffset((o) => o + 1); loadWeekIfNeeded(weekOffset + 1); } else flash("Can't plan more than a week ahead"); }}>→</Btn>
+              <Btn size="sm" kind="ghost" style={{ border: "none", opacity: weekOffset >= 8 ? .3 : 1 }}
+                onClick={() => { if (weekOffset < 8) { setWeekOffset((o) => o + 1); loadWeekIfNeeded(weekOffset + 1); } }}>→</Btn>
             </div>
 
             {!plan ? (
@@ -866,48 +930,67 @@ export default function App() {
         )}
 
         {/* ---------- GROCERIES ---------- */}
-        {tab === "groceries" && !shopPlan && (
-          <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center" }}>
-            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>{busy ? "Building the list…" : "No plan to shop for"}</div>
-            <div style={{ fontSize: 14, color: t.soft, marginBottom: 20, lineHeight: 1.5 }}>
-              {busy
-                ? `Putting ${weekLabel(shopOffset).toLowerCase()}'s meals together.`
-                : `The list is built from ${weekLabel(shopOffset).toLowerCase()}'s meals, and there's no plan for it yet.`}
+        {tab === "groceries" && (
+          <>
+            {/* One navigator for the whole tab, above everything, so the week
+                you're looking at is never in doubt. Browsing here changes which
+                week's data you see; it never changes what the app thinks the
+                date is — that comes from weekStartFor(0) inside shopView. */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 14, background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: 6 }}>
+              <Btn size="sm" kind="ghost" style={{ border: "none", opacity: shopOffset <= -8 ? .3 : 1 }}
+                onClick={() => { if (shopOffset > -8) { setShopOffset(shopOffset - 1); setChecked({}); } }}>←</Btn>
+              <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{view.label}</div>
+                <div style={{ fontSize: 11.5, color: view.bought ? t.teal : t.dim }}>
+                  {view.status}{view.readOnly ? " · history" : ""}
+                </div>
+              </div>
+              <Btn size="sm" kind="ghost" style={{ border: "none", opacity: shopOffset >= 8 ? .3 : 1 }}
+                onClick={() => { if (shopOffset < 8) { setShopOffset(shopOffset + 1); setChecked({}); } }}>→</Btn>
             </div>
-            {!busy && <Btn kind="primary" size="lg" onClick={() => makePlan(shopOffset)}>Generate now</Btn>}
+          </>
+        )}
+
+        {tab === "groceries" && !view.showList && (
+          <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center" }}>
+            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>
+              {busy ? "Building the list…"
+                : view.empty === "nothing-left" ? "Nothing left to buy"
+                : view.empty === "all-covered" ? "Nothing to buy"
+                : view.readOnly ? "No plan saved" : "No plan yet"}
+            </div>
+            <div style={{ fontSize: 14, color: t.soft, marginBottom: view.canGenerate && !busy ? 20 : 0, lineHeight: 1.5 }}>
+              {busy ? `Putting ${view.label.toLowerCase()}'s meals together.`
+                : view.empty === "nothing-left" ? `${view.status.replace("✓ ", "")}, and the kitchen already covers the rest of the week.`
+                : view.empty === "all-covered" ? "Your pantry already covers every meal on this plan."
+                : view.readOnly ? `No plan was ever saved for ${view.label.toLowerCase()}.`
+                : `The list is built from ${view.label.toLowerCase()}'s meals, and there's no plan for it yet.`}
+            </div>
+            {view.canGenerate && !busy && <Btn kind="primary" size="lg" onClick={() => makePlan(shopOffset)}>Generate now</Btn>}
           </div>
         )}
 
-        {tab === "groceries" && shopPlan && grocery && (
+        {tab === "groceries" && view.showList && grocery && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-              <h2 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>Shopping list</h2>
+              <h2 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>{view.readOnly ? "What you bought" : "Shopping list"}</h2>
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 19, fontWeight: 600, color: grocery.estimatedTotal <= (profile.budget_cap || 65) ? t.teal : t.coral }}>£{grocery.estimatedTotal.toFixed(2)}</span>
             </div>
-            <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 12px" }}>
-              For {weekLabel(shopOffset).toLowerCase()} · {grocery.items.length} items · {Object.values(checked).filter(Boolean).length} in basket
-              {isShopped(shopOffset) && <span style={{ color: t.teal }}> · already shopped, this is what's still missing</span>}
+            <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 14px" }}>
+              {grocery.items.length} items
+              {view.canEditItems && ` · ${Object.values(checked).filter(Boolean).length} in basket`}
+              {view.bought && !view.readOnly && <span style={{ color: t.teal }}> · already shopped, this is what's still missing</span>}
             </p>
 
-            {/* Which week you're shopping for is now an explicit choice here,
-                not a side effect of where the Plan calendar is parked. */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, background: t.card, border: `1px solid ${t.line}`, borderRadius: 12, padding: 4 }}>
-              {[0, 1].map((o) => (
-                <button key={o} onClick={() => { setShopOffset(o); setChecked({}); }}
-                  style={{ flex: 1, background: shopOffset === o ? t.cardHi : "transparent", border: "none", color: shopOffset === o ? t.text : t.soft, fontWeight: 600, fontSize: 13.5, padding: "9px 10px", borderRadius: 9 }}>
-                  {weekLabel(o)}
-                  {isShopped(o) && <span style={{ color: t.teal, marginLeft: 6, fontSize: 12 }}>✓ bought</span>}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
-              <Btn kind="solid" size="md" style={{ flex: 1 }}
-                onClick={() => setChecked(allTicked ? {} : Object.fromEntries(grocery.items.map((i) => [i.id, true])))}>
-                {allTicked ? "Clear all" : "Select all"}
-              </Btn>
-              <Btn kind="good" size="md" style={{ flex: 1.4 }} onClick={groceriesDone}>Groceries done →</Btn>
-            </div>
+            {view.canMarkShopped && (
+              <div style={{ display: "flex", gap: 8, marginBottom: 18 }}>
+                <Btn kind="solid" size="md" style={{ flex: 1 }}
+                  onClick={() => setChecked(allTicked ? {} : Object.fromEntries(grocery.items.map((i) => [i.id, true])))}>
+                  {allTicked ? "Clear all" : "Select all"}
+                </Btn>
+                <Btn kind="good" size="md" style={{ flex: 1.4 }} onClick={groceriesDone}>Groceries done →</Btn>
+              </div>
+            )}
 
             {grocery.byAisle.map((sec) => (
               <div key={sec.aisle} style={{ marginBottom: 22 }}>
@@ -916,8 +999,8 @@ export default function App() {
                   {sec.items.map((it) => (
                     <div key={it.id} style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, overflow: "hidden", opacity: checked[it.id] ? .5 : 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 14px" }}>
-                        <button onClick={() => setChecked((p) => ({ ...p, [it.id]: !p[it.id] }))}
-                          style={{ width: 26, height: 26, borderRadius: 8, border: `2px solid ${checked[it.id] ? t.teal : t.line}`, background: checked[it.id] ? t.teal : "transparent", color: t.bg, fontWeight: 700, fontSize: 15, flexShrink: 0 }}>
+                        <button onClick={() => view.canEditItems && setChecked((p) => ({ ...p, [it.id]: !p[it.id] }))}
+                          style={{ width: 26, height: 26, borderRadius: 8, border: `2px solid ${checked[it.id] ? t.teal : t.line}`, background: checked[it.id] ? t.teal : "transparent", color: t.bg, fontWeight: 700, fontSize: 15, flexShrink: 0, opacity: view.canEditItems ? 1 : .4 }}>
                           {checked[it.id] ? "✓" : ""}
                         </button>
                         <div style={{ flex: 1, minWidth: 0 }} onClick={() => setGuide((g) => ({ ...g, [it.id]: !g[it.id] }))}>
@@ -928,14 +1011,22 @@ export default function App() {
                             £{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}{it.guide ? " · tap for how to pick" : ""}
                           </div>
                         </div>
+                        {/* This lived inside the how-to-pick panel, so it only
+                            existed for items that had shopping guidance and only
+                            after you tapped. It's the row's second real action. */}
+                        {view.canEditItems && (
+                          <button onClick={(e) => { e.stopPropagation(); toggleEnough(it.id, true); }}
+                            style={{ flexShrink: 0, background: "transparent", border: `1px solid ${t.line}`, borderRadius: 100, color: t.soft, fontSize: 11.5, fontWeight: 600, padding: "7px 11px", lineHeight: 1.2 }}>
+                            Have<br />enough
+                          </button>
+                        )}
                       </div>
                       {guide[it.id] && it.guide && (
                         <div style={{ padding: "12px 14px 14px 52px", borderTop: `1px solid ${t.line}` }}>
                           <div style={{ fontSize: 10.5, fontWeight: 700, color: t.teal, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Go for</div>
                           <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 10 }}>{it.guide.pick}</div>
                           <div style={{ fontSize: 10.5, fontWeight: 700, color: t.coral, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Avoid</div>
-                          <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 12 }}>{it.guide.avoid}</div>
-                          <Btn size="sm" onClick={() => toggleEnough(it.id, true)}>Actually, I have enough</Btn>
+                          <div style={{ fontSize: 14, lineHeight: 1.55 }}>{it.guide.avoid}</div>
                         </div>
                       )}
                     </div>
@@ -944,7 +1035,7 @@ export default function App() {
               </div>
             ))}
 
-            {haveEnough.length > 0 && (
+            {haveEnough.length > 0 && view.canEditItems && (
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".1em", marginBottom: 9 }}>Skipping — you said you have enough</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>

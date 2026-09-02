@@ -156,21 +156,37 @@ async function statusAvailable() {
   return hasStatus;
 }
 
-/** Week starts that have been shopped for, newest first. */
-export async function getShoppedWeeks(limit = 12) {
-  if (!supabase) return (memory.weeks || []).filter((w) => w.status === "active").map((w) => w.week_start);
+/** Weeks that have been shopped for, newest first, with the date it happened —
+ *  the Shop tab says "✓ Bought Sunday" rather than just "bought". */
+export async function getShoppedWeeks(limit = 20) {
+  if (!supabase) {
+    return (memory.weeks || []).filter((w) => w.status === "active")
+      .map((w) => ({ week_start: w.week_start, shopped_at: w.shopped_at || null }));
+  }
   if (!(await statusAvailable())) return [];
   const { data, error } = await supabase
-    .from("weeks").select("week_start").eq("status", "active")
+    .from("weeks").select("week_start, shopped_at").eq("status", "active")
     .order("week_start", { ascending: false }).limit(limit);
   if (error) return [];
-  return (data || []).map((r) => r.week_start);
+  return data || [];
+}
+
+/** Undo of "Groceries done" — the shop didn't happen after all. Without this the
+ *  pantry was restored but the week stayed marked bought, so the Shop tab moved
+ *  on to next week and the list you'd just un-bought was unreachable. */
+export async function unmarkWeekShopped(weekStart) {
+  if (!supabase) {
+    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart && w.status === "active" ? { ...w, status: "draft", shopped_at: null } : w));
+    return;
+  }
+  if (!(await statusAvailable())) return;
+  await supabase.from("weeks").update({ status: "draft", shopped_at: null }).eq("week_start", weekStart).eq("status", "active");
 }
 
 /** "Groceries done" — this week's plan is now the one being eaten from. */
 export async function markWeekShopped(weekStart) {
   if (!supabase) {
-    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart ? { ...w, status: "active" } : w));
+    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart ? { ...w, status: "active", shopped_at: new Date().toISOString() } : w));
     return;
   }
   if (!(await statusAvailable())) return;
