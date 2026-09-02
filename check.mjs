@@ -10,6 +10,7 @@ import { calculateTargets } from "./src/lib/macroEngine.js";
 import { generateWeek, excludeDisliked, interpretRules, templates, usablePins, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay } from "./src/lib/mealPlanner.js";
 import { buildGroceryList } from "./src/lib/groceryListGenerator.js";
 import { allIngredients, purchaseUnits } from "./src/lib/foodDatabase.js";
+import { shopView } from "./src/lib/shopView.js";
 
 const tg = calculateTargets({ age:19, height_cm:185, weight_kg:72.5, sex:"male", training_days:5, goal:"mild_cut" });
 const CAP = 65;
@@ -90,6 +91,47 @@ function aiSwap(plan, day, slot) {
   if (!picked) picked = cheapest;
   return { plan: picked.week, changed: picked.tpl.id !== cur?.id };
 }
+
+
+// ---- Shop tab: browsing a week must never be mistaken for time passing ----
+// Past-ness comes from the date comparison alone, bought-ness from shop state
+// alone. Every combination is pinned here so a regression fails the gate rather
+// than reaching him as "why is last week asking me to shop again".
+function checkShopView() {
+  const REAL = "2026-08-31";                     // the real current week
+  const V = (over) => shopView({ weekStart: over.weekStart, realWeekStart: REAL, label: "x", hasPlan: true, bought: false, itemCount: 5, ...over });
+  const expect = (name, got, want) => {
+    for (const [k, v] of Object.entries(want)) {
+      if (got[k] !== v) bad("shopView", `${name}: ${k} was ${JSON.stringify(got[k])}, expected ${JSON.stringify(v)}`);
+    }
+  };
+
+  // A past week is history whichever way the shop went.
+  expect("past+bought", V({ weekStart: "2026-08-24", bought: true, boughtOn: "2026-08-23" }),
+    { tense: "past", readOnly: true, canMarkShopped: false, canEditItems: false, canGenerate: false, status: "✓ Bought Sunday" });
+  expect("past+unbought", V({ weekStart: "2026-08-24", bought: false }),
+    { tense: "past", readOnly: true, canMarkShopped: false, canGenerate: false, status: "Not bought" });
+  expect("past+noplan", V({ weekStart: "2026-08-24", hasPlan: false }),
+    { readOnly: true, canGenerate: false, empty: "no-plan" });
+
+  // This week: actionable whether or not he remembered to tap Groceries done.
+  expect("current+unbought", V({ weekStart: REAL, bought: false }),
+    { tense: "current", readOnly: false, canMarkShopped: true, canEditItems: true, status: "Not yet bought" });
+  expect("current+bought+remaining", V({ weekStart: REAL, bought: true, boughtOn: "2026-08-30", itemCount: 3 }),
+    { readOnly: false, canMarkShopped: true, bought: true, showList: true });
+  expect("current+bought+empty", V({ weekStart: REAL, bought: true, boughtOn: "2026-08-30", itemCount: 0 }),
+    { showList: false, empty: "nothing-left", canMarkShopped: false });
+
+  // Next and beyond: live, and a week with no plan offers to build one.
+  expect("next+unbought", V({ weekStart: "2026-09-07", bought: false, itemCount: 24 }),
+    { tense: "future", readOnly: false, canMarkShopped: true, canGenerate: false, status: "Not yet bought" });
+  expect("future+noplan", V({ weekStart: "2026-09-21", hasPlan: false }),
+    { tense: "future", readOnly: false, canGenerate: true, showList: false, empty: "no-plan" });
+  // Marking a future week bought is a real action, not a side effect of browsing.
+  expect("future+bought", V({ weekStart: "2026-09-07", bought: true, boughtOn: "2026-09-06" }),
+    { readOnly: false, bought: true, status: "✓ Bought Sunday" });
+}
+checkShopView();
 
 let swaps = 0, noops = 0, pinnedSwaps = 0;
 for (let i = 0; i < N; i++) {

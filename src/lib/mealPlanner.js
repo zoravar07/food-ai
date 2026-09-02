@@ -249,11 +249,12 @@ export function trimToBudget(week, targets, budgetCap, { leftovers = {}, floor =
 
 /** Cheapest template the rules allow in a slot. Shared by the last-resort paths
  *  in both generation and swap rebalancing so they agree on what "cheapest" is. */
-export function cheapestTemplate(slot, blocked = {}) {
+export function cheapestTemplate(slot, blocked = {}, exclude = null) {
   const all = templates[slot] || [];
-  const allowed = all.filter((t) => !(blocked[slot] || []).includes(t.id));
-  const list = allowed.length ? allowed : all;
-  return [...list].sort((a, b) => templateCost(a.items) - templateCost(b.items))[0];
+  let allowed = all.filter((t) => !(blocked[slot] || []).includes(t.id));
+  if (exclude) allowed = allowed.filter((t) => !exclude.has(t.id));
+  const list = allowed.length ? allowed : (exclude ? [] : all);
+  return [...list].sort((a, b) => templateCost(a.items) - templateCost(b.items))[0] || null;
 }
 
 /** Rebuild one day with `tpl` in `slot`, rescaling the day's portions around it
@@ -290,7 +291,12 @@ export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pin
   candidates.sort((a, b) => b.cost - a.cost);
 
   for (const c of candidates) {
-    const tpl = cheapestTemplate(c.slot.toLowerCase(), blocked);
+    const slotKey = c.slot.toLowerCase();
+    // Prefer the cheapest meal NOT already on the menu in this slot. Always
+    // reaching for the single cheapest converged the week onto one dish, which
+    // is how a swap could occasionally leave 2 distinct dinners across 7 days.
+    const onMenu = new Set(out.map((d) => d.meals.find((m) => m.slot === c.slot)?.id).filter(Boolean));
+    const tpl = cheapestTemplate(slotKey, blocked, onMenu) || cheapestTemplate(slotKey, blocked);
     if (!tpl || out[c.dayIdx].meals.find((m) => m.slot === c.slot)?.id === tpl.id) continue;
     const next = out.map((d, i) => (i !== c.dayIdx ? d : setMealOnDay(d, c.slot, tpl, targets)));
     out = trimToBudget(next, targets, budgetCap, { leftovers, floor: 100, passes: 30, hard: true });
