@@ -157,3 +157,17 @@ where exists (
 );
 
 create index if not exists weeks_status_idx on weeks (status, week_start desc);
+
+-- ============ v4: weeks start on Sunday ============
+-- Sunday is shop day, so it is day one of the week being shopped for rather
+-- than the tail of the week before. Every week_start written from here on is a
+-- Sunday; rows written under the old Monday scheme can never match a lookup
+-- again, so retire them rather than leaving them reporting as live shops.
+--
+-- Nothing else is affected: meal_logs are keyed by log_date, pantry and
+-- have_enough by ingredient, grocery_shops by shop_date. Only saved plans are
+-- lost, and those regenerate in under a second.
+update weeks
+set status = 'archived'
+where status <> 'archived'
+  and extract(dow from week_start) <> 0;   -- 0 = Sunday

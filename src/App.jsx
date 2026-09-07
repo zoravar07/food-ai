@@ -6,7 +6,7 @@ import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js"
 import { recipes } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
-import { DAYS, iso, weekStartFor, dateForDay, weekLabel } from "./lib/weeks.js";
+import { DAYS, iso, weekStartFor, dateForDay, weekLabel, todayIndex } from "./lib/weeks.js";
 import { shopView } from "./lib/shopView.js";
 
 const t = {
@@ -22,7 +22,6 @@ const TABS = [
   { id: "ai", label: "AI", icon: "✦" },
   { id: "settings", label: "You", icon: "⚙" },
 ];
-const todayDayIdx = () => { const d = new Date().getDay(); return d === 0 ? 6 : d - 1; };
 
 // A log row holds a REAL estimate once it has macros on it — that only happens
 // when the AI worked them out from what he actually ate. The planned meal's
@@ -192,7 +191,7 @@ export default function App() {
   const [targets, setTargets] = useState(() => calculateTargets(store.DEFAULT_PROFILE));
   const [weekOffset, setWeekOffset] = useState(0);
   const [shopOffset, setShopOffset] = useState(0);
-  const [dayIdx, setDayIdx] = useState(todayDayIdx());
+  const [dayIdx, setDayIdx] = useState(todayIndex());
   const [weeks, setWeeks] = useState({});          // { "2026-08-24": plan }
   const [grocery, setGrocery] = useState(null);
   const [logs, setLogs] = useState({});
@@ -256,7 +255,7 @@ export default function App() {
    *  for days still to come in a week already shopped for — that plan assumed
    *  the food was there, and now it isn't. */
   const missingFor = (meal, offset, dIdx) => {
-    if (offset !== 0 || dIdx < todayDayIdx() || !isShopped(0)) return [];
+    if (offset !== 0 || dIdx < todayIndex() || !isShopped(0)) return [];
     return (meal.items || [])
       .filter(([id]) => id !== "whey" && outOfStock.has(id))
       .map(([id]) => allIngredients.find((x) => x.id === id)?.name || id);
@@ -889,7 +888,7 @@ export default function App() {
               <>
                 <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 18 }}>
                   {DAYS.map((d, i) => {
-                    const on = i === dayIdx, isToday = weekOffset === 0 && i === todayDayIdx();
+                    const on = i === dayIdx, isToday = weekOffset === 0 && i === todayIndex();
                     return (
                       <button key={d} onClick={() => setDayIdx(i)}
                         style={{ flex: "1 0 60px", background: on ? t.cardHi : "transparent", border: `1px solid ${on ? t.peri : t.line}`, borderRadius: 13, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>

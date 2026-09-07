@@ -13,14 +13,9 @@ export const supabase = isConfigured ? createClient(url, key) : null;
 // In-memory fallback so the UI works before Supabase is wired up
 const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [], rules: [], profile: null };
 
-function mondayOf(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day; // weeks run Mon–Sun
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
-export const currentWeekStart = mondayOf;
+// Weeks run Sunday to Saturday; weeks.js owns that definition.
+import { weekStartOf, iso } from "./weeks.js";
+export const currentWeekStart = (date = new Date()) => iso(weekStartOf(date));
 
 // ---------- Profile (editable settings) ----------
 export const DEFAULT_PROFILE = {
