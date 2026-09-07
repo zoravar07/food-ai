@@ -83,10 +83,12 @@ export async function removeRuleByText(fragment) {
   return null;
 }
 
-/** Cravings expire once a plan has been generated with them. */
-export async function clearCravings() {
-  if (!supabase) { memory.rules = (memory.rules || []).filter((r) => r.kind !== "craving"); return; }
-  const { error } = await supabase.from("rules").delete().eq("kind", "craving");
+/** Retire specific rules by id. Cravings are spent when they actually land in a
+ *  plan; this used to delete every craving whenever anything was generated. */
+export async function removeRules(ids = []) {
+  if (!ids.length) return;
+  if (!supabase) { memory.rules = (memory.rules || []).filter((r) => !ids.includes(r.id)); return; }
+  const { error } = await supabase.from("rules").delete().in("id", ids);
   if (error) throw error;
 }
 
@@ -114,25 +116,16 @@ export async function saveWeekVersion(weekStart, plan, targets, budgetCap) {
       : { ...row, status: "draft" };
   }
   const { data, error } = await supabase.from("weeks").insert(row).select().single();
-
   if (!error) return data;
 
-  // 23505 = unique violation: the old one-plan-per-week constraint is still in
-  // place. Rather than silently overwriting (which is what made history vanish),
-  // archive the existing plan under a shifted date so both remain browsable.
+  // 23505 means the original one-plan-per-week constraint is somehow back. The
+  // old handling moved the existing row to a RANDOM date up to eight years in
+  // the past so the insert could proceed: two archives could collide on the same
+  // date, and an archived plan could land on a date the app reads as "last week".
+  // Status is how a superseded plan steps aside now, so a collision here means
+  // the schema is wrong and should say so rather than scattering dates.
   if (error.code === "23505") {
-    const existing = await getWeek(weekStart);
-    if (existing?.id) {
-      const archiveDate = new Date(weekStart);
-      archiveDate.setDate(archiveDate.getDate() - Math.ceil(Math.random() * 3000));
-      await supabase.from("weeks").update({ week_start: archiveDate.toISOString().slice(0, 10) }).eq("id", existing.id);
-    }
-    const retry = await supabase
-      .from("weeks")
-      .insert({ week_start: weekStart, plan, targets, budget_cap: budgetCap })
-      .select().single();
-    if (retry.error) throw retry.error;
-    return retry.data;
+    throw new Error("weeks.week_start still has a unique constraint — run the v1 block in supabase_schema.sql (alter table weeks drop constraint weeks_week_start_key)");
   }
   throw error;
 }
@@ -192,11 +185,18 @@ export async function markWeekShopped(weekStart) {
   await supabase.from("weeks").update({ status: "active", shopped_at: new Date().toISOString() }).eq("id", current.id);
 }
 
+/** Edit the live plan for a week in place — a swapped meal refines the plan
+ *  that's already there rather than becoming a new one, so history holds each
+ *  plan he GENERATED, not a near-identical row per meal change. Generation goes
+ *  through saveWeekVersion, which archives the old plan and inserts a new one;
+ *  the two are not interchangeable and each says so. */
 export async function saveWeek(weekStart, plan, targets, budgetCap) {
   if (!supabase) {
-    if (memory.weeks.length) memory.weeks[0] = { ...memory.weeks[0], plan };
-    else memory.weeks = [{ week_start: weekStart, plan, targets, budget_cap: budgetCap, created_at: new Date().toISOString() }];
-    return memory.weeks[0];
+    // This edited memory.weeks[0] regardless of weekStart, so an edit aimed at
+    // next week rewrote whichever plan happened to be newest.
+    const at = memory.weeks.findIndex((w) => w.week_start === weekStart);
+    if (at >= 0) { memory.weeks[at] = { ...memory.weeks[at], plan }; return memory.weeks[at]; }
+    return saveWeekVersion(weekStart, plan, targets, budgetCap);
   }
   const existing = await getWeek(weekStart);
   if (existing?.id) {
@@ -208,8 +208,19 @@ export async function saveWeek(weekStart, plan, targets, budgetCap) {
 }
 
 export async function getWeek(weekStart) {
-  if (!supabase) return memory.weeks.find((w) => w.week_start === weekStart) || null;
-  // There can be several saved plans for one week — take the most recent.
+  if (!supabase) {
+    const rows = memory.weeks.filter((w) => w.week_start === weekStart);
+    return rows.find((w) => w.status !== "archived") || rows[0] || null;
+  }
+  // A week can hold several saved plans. Prefer the live one: reading the newest
+  // row regardless of status could hand back a superseded plan and let an edit
+  // land on it, which is the same class of mistake as editing the wrong week.
+  if (await statusAvailable()) {
+    const live = await supabase
+      .from("weeks").select("*").eq("week_start", weekStart).neq("status", "archived")
+      .order("created_at", { ascending: false }).limit(1);
+    if (!live.error && live.data?.[0]) return live.data[0];
+  }
   const { data, error } = await supabase
     .from("weeks").select("*").eq("week_start", weekStart)
     .order("created_at", { ascending: false }).limit(1);
@@ -299,7 +310,10 @@ export async function setPantryItem(ingredientId, name, quantity, unit = "g", ex
   return row;
 }
 
-/** Pantry rows -> { ingredientId: quantity } for the grocery generator */
+/** Pantry rows -> { ingredientId: quantity } for the grocery generator.
+ *  A row he marked "running low" counts as nothing, because that tap means
+ *  "don't rely on this, buy more". Only his tap sets that flag — see
+ *  consumeIngredients for why cooking must not. */
 export async function getLeftovers() {
   const rows = await getPantry();
   return rows.reduce((acc, r) => {
@@ -372,7 +386,12 @@ export async function consumeIngredients(items) {
     const row = pantry.find((p) => p.ingredient_id === id);
     if (!row || row.category === "cupboard") continue;
     const next = Math.max(0, Number(row.quantity) - qty);
-    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: next > 0 && next < qty });
+    // Deliberately does NOT touch `low`. Cooking produces an accurate remainder,
+    // and getLeftovers treats a low row as if it were empty — so auto-flagging
+    // here made the 60g of chicken you genuinely have stop counting toward the
+    // list, which then asked for a full week's worth as though you had none.
+    // `low` stays what it is: something he said, not something we inferred.
+    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low });
   }
 }
 
@@ -385,9 +404,8 @@ export async function restoreIngredients(items) {
     const row = pantry.find((p) => p.ingredient_id === id);
     if (!row || row.category === "cupboard") continue;
     const next = Number(row.quantity) + qty;
-    // Clearing `low` here would undo a deliberate "running low" tap, so it only
-    // lifts when the restored amount is genuinely back above what the meal used.
-    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low && next < qty });
+    // Same rule in reverse: putting stock back doesn't overrule what he said.
+    await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low });
   }
 }
 

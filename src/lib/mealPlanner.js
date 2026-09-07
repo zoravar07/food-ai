@@ -651,6 +651,9 @@ export function interpretRules(rules = []) {
   const pins = [];      // { day, slot, templateId }
   const favour = [];    // cuisine or template ids to prefer
   const avoid = [];     // ingredient ids to avoid
+  // What each rule asked for, so a craving can be retired when it actually
+  // lands rather than every craving being wiped on any generation.
+  const matched = [];
 
   const DAY_WORDS = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
   const SLOT_WORDS = { breakfast: "Breakfast", lunch: "Lunch", dinner: "Dinner", snack: "Snack" };
@@ -676,16 +679,28 @@ export function interpretRules(rules = []) {
     const slot = Object.entries(SLOT_WORDS).find(([k]) => text.includes(k))?.[1]
       || (match ? match.slot.charAt(0).toUpperCase() + match.slot.slice(1) : null);
 
-    if (match && day && slot) pins.push({ day, slot, templateId: match.id });
+    if (match && day && slot) {
+      // Two rules can name the same day and slot: "burger every Friday" and
+      // "tacos on Friday". The fresh one-off wins that occurrence and the
+      // standing rule resumes next week, once the craving has been retired —
+      // the same precedence an explicit swap_meal already gets.
+      const kind = r.kind || "standing";
+      const at = pins.findIndex((p) => p.day === day && p.slot === slot);
+      if (at < 0) pins.push({ day, slot, templateId: match.id, kind });
+      else if (kind === "craving" && pins[at].kind !== "craving") pins[at] = { day, slot, templateId: match.id, kind };
+    }
     else if (match) favour.push(match.id);
 
     // Cuisine preference
+    const cuisines = [];
     ["mexican", "indian", "japanese", "chinese", "italian", "american", "middle_eastern", "british"].forEach((c) => {
-      if (text.includes(c.replace("_", " ")) || text.includes(c)) favour.push(`cuisine:${c}`);
+      if (text.includes(c.replace("_", " ")) || text.includes(c)) { favour.push(`cuisine:${c}`); cuisines.push(c); }
     });
+
+    matched.push({ id: r.id, kind: r.kind || "standing", text: r.text, templateId: match?.id || null, pinned: Boolean(match && day && slot), cuisines });
   });
 
-  return { pins, favour, avoid };
+  return { pins, favour, avoid, matched };
 }
 
 /** The cheapest week the rules allow: least expensive permitted template in every
@@ -714,6 +729,19 @@ function cheapestWeek(targets, budgetCap, options = {}) {
   });
 
   return trimToBudget(week, targets, budgetCap, { leftovers, floor: 100, passes: 40 });
+}
+
+/** Which of those rules actually made it into the finished week. A craving is a
+ *  one-off, so it's spent once it lands — but only then, and only that one.
+ *  Wiping every craving on any generation meant asking for tacos and then
+ *  building next week threw the request away unheard. */
+export function appliedRules(week, matched = []) {
+  const ids = new Set(week.flatMap((d) => d.meals.map((m) => m.id)));
+  const cuisines = new Set(week.flatMap((d) => d.meals.map((m) => m.cuisine).filter(Boolean)));
+  return matched.filter((m) =>
+    (m.templateId && ids.has(m.templateId)) ||
+    (m.cuisines?.length && m.cuisines.some((c) => cuisines.has(c)))
+  );
 }
 
 export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {}) {

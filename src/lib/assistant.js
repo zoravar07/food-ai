@@ -99,7 +99,7 @@ Available actions:
     Never just describe the macros in text — the numbers must go in the action block
     or the app cannot record them.
 
-Valid day values: Mon Tue Wed Thu Fri Sat Sun
+Valid day values: Sun Mon Tue Wed Thu Fri Sat
 Valid slot values: Breakfast Lunch Snack Dinner
 Valid templateId values (use these exact ids for set_meal):
 BREAKFAST: greek_bowl, yoghurt_parfait, protein_smoothie, berry_smoothie, scrambled_eggs, fried_eggs_avo, omelette
@@ -121,8 +121,8 @@ the state above first, then talk it through in a sentence or two:
   picks next week, emit add_craving — that rebuilds next week's plan around it.
 - Something's missing and this week's shop hasn't happened -> it can just go on
   this week's list, so emit add_craving and tell him it'll be on the shop.
-Never swap into a day that has already gone. Only the days listed above are
-available. Don't offer a meal whose ingredients he's run out of.
+Only the days listed above are available — never swap into one that has gone.
+Don't offer a meal whose ingredients he's run out of.
 
 Only include an action block when they actually want something changed.
 `;
@@ -146,17 +146,24 @@ function remainingDays() {
 
 /**
  * @param {Array<{role:string, content:string}>} messages
- * @param {Object} context - { week, pantry, targets, todayLogs, shoppedThisWeek }
+ * @param {Object} context - { week, weekLabel, planFrom, swappableDays, pantry,
+ *   targets, todayLogs, shoppedThisWeek }
  */
 export async function askAssistant(messages, context = {}) {
   const stocked = (context.pantry || []).filter((p) => Number(p.quantity) > 0);
   const runOut = (context.pantry || []).filter((p) => Number(p.quantity) <= 0 && p.category !== "cupboard");
 
+  const label = context.weekLabel || "This week";
+  const swappable = context.swappableDays || remainingDays();
+
   const contextBlock = `
 CURRENT STATE:
-${context.week ? `Rest of this week:\n${summarisePlan(context.week)}` : "No plan generated yet."}
+He is looking at ${label.toUpperCase()}, and any change you make applies to that
+week. Don't offer to change a different one.
 
-Days left this week (only these can be swapped into): ${remainingDays().join(", ") || "none — the week is over"}
+${context.week ? `${label}'s plan:\n${summarisePlan(context.week, context.planFrom || 0)}` : "No plan generated yet."}
+
+Days in ${label.toLowerCase()} you can swap into: ${swappable.join(", ") || "none — the week is over"}
 This week's shop: ${context.shoppedThisWeek ? "already done" : "NOT done yet"}
 
 ${stocked.length ? `In the kitchen right now:\n${stocked.map((p) => `- ${p.name}: ${kitchenAmount(p.ingredient_id, Math.round(Number(p.quantity)))}`).join("\n")}` : "Kitchen is empty."}
@@ -182,11 +189,11 @@ ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- 
   return parseAction(text);
 }
 
-function summarisePlan(week) {
-  // Only the rest of the week is relevant — sending all 7 days of detail
-  // makes the prompt bigger and the reply slower for no benefit.
+function summarisePlan(week, fromIdx = 0) {
+  // For the current week only the days still ahead are relevant; for a week
+  // being browsed, all of it is.
   return week
-    .slice(todayIndex())
+    .slice(fromIdx)
     .map((day) => `${day.day}: ` + day.meals.filter((m) => m.slot !== "Shake").map((m) => `${m.slot} ${m.name}`).join(" | "))
     .join("\n");
 }
