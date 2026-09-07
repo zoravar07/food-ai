@@ -4,6 +4,7 @@
 // actions (like a meal swap) the app can actually execute.
 
 import { kitchenAmount } from "./foodDatabase.js";
+import { DAYS, todayIndex } from "./weeks.js";
 
 const USER_CONTEXT = `
 You are hungryvar, a personal nutrition and meal-planning assistant for one specific user.
@@ -140,9 +141,7 @@ export function parseAction(text) {
 
 /** Which weekdays are still ahead, so a swap can never land on a day that's gone. */
 function remainingDays() {
-  const d = new Date().getDay();
-  const todayIdx = d === 0 ? 6 : d - 1;
-  return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].slice(todayIdx);
+  return DAYS.slice(todayIndex());
 }
 
 /**
@@ -186,10 +185,8 @@ ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- 
 function summarisePlan(week) {
   // Only the rest of the week is relevant — sending all 7 days of detail
   // makes the prompt bigger and the reply slower for no benefit.
-  const d = new Date().getDay();
-  const todayIdx = d === 0 ? 6 : d - 1;
   return week
-    .slice(todayIdx)
+    .slice(todayIndex())
     .map((day) => `${day.day}: ` + day.meals.filter((m) => m.slot !== "Shake").map((m) => `${m.slot} ${m.name}`).join(" | "))
     .join("\n");
 }

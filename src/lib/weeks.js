@@ -1,13 +1,22 @@
-// Week helpers — the app's week runs Monday to Sunday.
-export const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Week helpers — the app's week runs Sunday to Saturday.
+// Sunday is shop day, so it is day one of the week being shopped for rather
+// than the tail end of the week before. Everything that needs the day order
+// imports DAYS from here; it used to be re-declared in four files, which is
+// exactly how a change like this goes half-applied.
+export const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function mondayOf(date = new Date()) {
+/** The Sunday that starts the week containing `date`. */
+export function weekStartOf(date = new Date()) {
   const d = new Date(date);
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+  d.setDate(d.getDate() - d.getDay());   // getDay(): 0 = Sunday
   d.setHours(0, 0, 0, 0);
   return d;
 }
+
+/** Which day of the week it actually is, from the device clock. Takes no
+ *  arguments on purpose: a function that cannot be handed a week offset cannot
+ *  be fooled into thinking time moved because you browsed to another week. */
+export const todayIndex = () => new Date().getDay();
 
 export const iso = (d) => {
   const x = new Date(d);
@@ -16,15 +25,15 @@ export const iso = (d) => {
 
 /** offset 0 = this week, -1 = last week, +1 = next week */
 export function weekStartFor(offset) {
-  const m = mondayOf();
-  m.setDate(m.getDate() + offset * 7);
-  return iso(m);
+  const s = weekStartOf();
+  s.setDate(s.getDate() + offset * 7);
+  return iso(s);
 }
 
 export function dateForDay(offset, dayIdx) {
-  const m = mondayOf();
-  m.setDate(m.getDate() + offset * 7 + dayIdx);
-  return m;
+  const s = weekStartOf();
+  s.setDate(s.getDate() + offset * 7 + dayIdx);
+  return s;
 }
 
 export function weekLabel(offset) {

@@ -6,6 +6,7 @@
 
 import { allIngredients, estimateItemCost } from "./foodDatabase.js";
 import { buildGroceryList } from "./groceryListGenerator.js";
+import { DAYS } from "./weeks.js";
 
 const allDb = allIngredients;
 const lookup = (id) => allDb.find((x) => x.id === id);
@@ -423,7 +424,7 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
   const pins = usablePins(options.pins, blocked);
   const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
   const expensiveCount = {};
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const days = DAYS;
 
   const openedProteins = new Set();
 
@@ -696,7 +697,7 @@ function cheapestWeek(targets, budgetCap, options = {}) {
   const pins = usablePins(options.pins, blocked);
   const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner", "dessert"].map((sl) => [sl, cheapestTemplate(sl, blocked)]));
 
-  const week = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => {
+  const week = DAYS.map((day) => {
     const pinned = (slot) => {
       const pin = pins.find((p) => p.day === day && p.slot === slot);
       return pin ? (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null : null;
