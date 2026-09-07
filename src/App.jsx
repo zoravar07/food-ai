@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay } from "./lib/mealPlanner.js";
+import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
@@ -216,6 +216,7 @@ export default function App() {
   const [pantryCheck, setPantryCheck] = useState(null);
   const [shopped, setShopped] = useState([]);      // week_starts already shopped for
   const [booted, setBooted] = useState(false);
+  const [shopCheckOff, setShopCheckOff] = useState(false);
   const chatEnd = useRef(null);
   const pendingLog = useRef(null);   // where an AI macro estimate must land
   const autoPlanned = useRef(new Set());  // weeks already auto-generated this session
@@ -277,6 +278,22 @@ export default function App() {
     try { if (localStorage.getItem("hv_pantry_check") === today) return; } catch { return; }
     setPantryCheck(today);
   }, []);
+
+  // He shops on Sunday. If it's Tuesday and this week still reads as unbought,
+  // either he hasn't been yet or he went and forgot to tap "Groceries done" —
+  // and in that second case the pantry is stale, so every list netted against it
+  // is wrong and nothing currently notices.
+  const staleShop = booted && !shopCheckOff && todayIndex() >= 2
+    && Boolean(weeks[weekStartFor(0)]) && !isShopped(0);
+
+  useEffect(() => {
+    try { setShopCheckOff(localStorage.getItem("hv_shop_check") === weekStartFor(0)); } catch {}
+  }, [booted]);
+
+  function dismissShopCheck() {
+    try { localStorage.setItem("hv_shop_check", weekStartFor(0)); } catch {}
+    setShopCheckOff(true);
+  }
 
   function dismissPantryCheck(goToPantry) {
     try { localStorage.setItem("hv_pantry_check", pantryCheck); } catch {}
@@ -415,7 +432,11 @@ export default function App() {
     setShopOffset(offset);   // the shop follows the plan you just generated
     try {
       await store.saveWeekVersion(key, p, tg, prof.budget_cap || 65);
-      if (rs.some((r) => r.kind === "craving")) { await store.clearCravings(); await loadRules(); }
+      // Only cravings that actually made it into this plan are spent. One that
+      // didn't land keeps its turn, and generating a week a craving wasn't for
+      // no longer throws it away.
+      const spent = appliedRules(p, opts.matched).filter((m) => m.kind === "craving" && m.id);
+      if (spent.length) { await store.removeRules(spent.map((m) => m.id)); await loadRules(); }
     } catch (e) { console.error(e); flash("Generated but not saved"); }
     setBusy(false);
     if (quiet) flash(`${weekLabel(offset)} rebuilt around your new rules`);
@@ -607,9 +628,16 @@ export default function App() {
     const next = [...chat, { role: "user", content: text }];
     setChat(next); setBusy(true);
     try {
+      // The model was shown THIS week's plan while its edits landed on whichever
+      // week the calendar was parked on, so asking to change next week while
+      // looking at this one silently rewrote this one. Context and target are
+      // now the same week, and the model is told which week that is.
+      const viewingNow = weekOffset === 0;
       const { reply, actions } = await askAssistant(next, {
-        week: weeks[weekStartFor(0)] || plan, pantry, targets, rules,
-        shoppedThisWeek: isShopped(0),
+        week: plan, weekLabel: weekLabel(weekOffset),
+        planFrom: viewingNow ? todayIndex() : 0,
+        swappableDays: viewingNow ? DAYS.slice(todayIndex()) : DAYS,
+        pantry, targets, rules, shoppedThisWeek: isShopped(0),
       });
       setChat([...next, { role: "assistant", content: reply }]);
       for (const a of actions || []) await runAction(a);
@@ -721,8 +749,10 @@ export default function App() {
     if (a.type === "log_estimate") {
       // If this estimate was requested by the "ate out" sheet, it belongs on the
       // row he tapped — not on whatever day the model named.
-      const di = a.day ? DAYS.indexOf(a.day) : dayIdx;
-      const date = pendingLog.current?.date || iso(dateForDay(weekOffset, di >= 0 ? di : dayIdx));
+      // Eating happens in the real week, never the one being browsed — you can't
+      // have eaten a meal next Tuesday.
+      const di = a.day ? DAYS.indexOf(a.day) : (weekOffset === 0 ? dayIdx : todayIndex());
+      const date = pendingLog.current?.date || iso(dateForDay(0, di >= 0 ? di : todayIndex()));
       const slot = pendingLog.current?.slot || a.slot || "Lunch";
       const row = { log_date: date, slot, status: "ate_out", meal_name: a.description || "ate out", kcal: +a.kcal || 0, protein: +a.protein || 0, carbs: +a.carbs || 0, fat: +a.fat || 0 };
       setLogs((p) => ({ ...p, [`${date}|${row.slot}`]: row }));
@@ -929,6 +959,23 @@ export default function App() {
         )}
 
         {/* ---------- GROCERIES ---------- */}
+        {tab === "groceries" && staleShop && (
+          <div style={{ background: "rgba(245,169,98,.08)", border: `1px solid rgba(245,169,98,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 14 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 4 }}>Did you shop this week?</div>
+            <div style={{ fontSize: 13, color: t.soft, lineHeight: 1.5, marginBottom: 11 }}>
+              This week still reads as not bought. If you went and didn't tap “Groceries done”,
+              your pantry is out of date and these amounts are too high.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="good" size="sm" style={{ flex: 1 }} onClick={() => {
+                setShopOffset(0); setChecked({}); dismissShopCheck();
+                flash("Tick what you actually bought, then Groceries done");
+              }}>I already shopped</Btn>
+              <Btn size="sm" onClick={dismissShopCheck}>Not yet</Btn>
+            </div>
+          </div>
+        )}
+
         {tab === "groceries" && (
           <>
             {/* One navigator for the whole tab, above everything, so the week
