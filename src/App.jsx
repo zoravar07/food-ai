@@ -1139,10 +1139,10 @@ export default function App() {
                             existed for items that had shopping guidance and only
                             after you tapped. It's the row's second real action. */}
                         {view.canEditItems && (
-                          <button onClick={(e) => { e.stopPropagation(); toggleEnough(it.id, true); }}
-                            style={{ flexShrink: 0, background: "transparent", border: `1px solid ${t.line}`, borderRadius: 100, color: t.soft, fontSize: 11.5, fontWeight: 600, padding: "7px 11px", lineHeight: 1.2 }}>
-                            Have<br />enough
-                          </button>
+                          <Btn size="sm" kind="solid" style={{ flexShrink: 0 }}
+                            onClick={(e) => { e.stopPropagation(); toggleEnough(it.id, true); }}>
+                            Have enough
+                          </Btn>
                         )}
                       </div>
                       {guide[it.id] && it.guide && (
