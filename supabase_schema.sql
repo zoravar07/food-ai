@@ -240,3 +240,21 @@ begin
     execute format('create policy %I on %I for all to authenticated using (true) with check (true)', 'shared read-write', tbl);
   end loop;
 end $$;
+
+-- ============ v7: drop the transitional arm ============
+-- v6 policies allowed `user_id is null` so rows written before accounts existed
+-- stayed visible and could be claimed on first sign-in. That's done — nothing is
+-- orphaned — and leaving it would let a second account see and claim unowned
+-- rows. Ownership is now required, not merely preferred.
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['profile','weeks','meal_logs','pantry','grocery_shops','custom_items','rules','have_enough']
+  loop
+    execute format('alter table %I alter column user_id set not null', tbl);
+    execute format('drop policy if exists %I on %I', 'owner access', tbl);
+    execute format(
+      'create policy %I on %I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())',
+      'owner access', tbl);
+  end loop;
+end $$;
