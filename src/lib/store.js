@@ -8,7 +8,65 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const isConfigured = Boolean(url && key);
-export const supabase = isConfigured ? createClient(url, key) : null;
+export const supabase = isConfigured
+  ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } })
+  : null;
+
+// ---------- Auth ----------
+// Every table now carries user_id with `default auth.uid()`, and RLS filters
+// reads to the signed-in user, so queries below don't need a user filter — the
+// database applies it. The anon key is public by design; the policies are what
+// make it safe, and until now they permitted everything to everyone.
+
+export async function getSession() {
+  if (!supabase) return null;
+  const { data } = await supabase.auth.getSession();
+  return data?.session || null;
+}
+
+export function onAuthChange(fn) {
+  if (!supabase) return () => {};
+  const { data } = supabase.auth.onAuthStateChange((_e, session) => fn(session));
+  return () => data?.subscription?.unsubscribe();
+}
+
+export async function signIn(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data.session;
+}
+
+export async function signUp(email, password) {
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  if (error) throw error;
+  return data.session;   // null when the project requires email confirmation
+}
+
+export async function signOut() {
+  if (!supabase) return;
+  await supabase.auth.signOut();
+  // The service worker caches Supabase reads for offline use; leaving them
+  // behind would show one account's data to the next person to sign in.
+  try {
+    const names = await caches.keys();
+    await Promise.all(names.filter((n) => n.endsWith("-data")).map((n) => caches.delete(n)));
+  } catch {}
+}
+
+const OWNED = ["profile", "weeks", "meal_logs", "pantry", "grocery_shops", "custom_items", "rules", "have_enough"];
+
+/** Rows written before there were accounts have a null user_id. The transitional
+ *  policy lets the signed-in user see and claim them; this runs once on first
+ *  authenticated boot so nothing has to be backfilled by hand. */
+export async function adoptOrphanRows(userId) {
+  if (!supabase || !userId) return 0;
+  let claimed = 0;
+  for (const table of OWNED) {
+    const { data, error } = await supabase.from(table).update({ user_id: userId }).is("user_id", null).select("*", { count: "exact" });
+    if (!error && data) claimed += data.length;
+  }
+  return claimed;
+}
 
 // In-memory fallback so the UI works before Supabase is wired up
 const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [], rules: [], profile: null };
@@ -26,7 +84,9 @@ export const DEFAULT_PROFILE = {
 
 export async function getProfile() {
   if (!supabase) return memory.profile || DEFAULT_PROFILE;
-  const { data, error } = await supabase.from("profile").select("*").eq("id", 1).maybeSingle();
+  // RLS narrows this to the signed-in user's row; `id = 1` was the single-user
+  // convention and would have collided the moment a second account existed.
+  const { data, error } = await supabase.from("profile").select("*").limit(1).maybeSingle();
   if (error) throw error;
   return data || DEFAULT_PROFILE;
 }
@@ -34,7 +94,7 @@ export async function getProfile() {
 export async function saveProfile(fields) {
   if (!supabase) { memory.profile = { ...(memory.profile || DEFAULT_PROFILE), ...fields }; return memory.profile; }
   const { data, error } = await supabase
-    .from("profile").upsert({ id: 1, ...fields, updated_at: new Date().toISOString() }, { onConflict: "id" })
+    .from("profile").upsert({ ...fields, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
     .select().single();
   if (error) throw error;
   return data;
@@ -256,7 +316,7 @@ export async function logMeal({ date, slot, status, mealName, kcal, protein, car
     memory.logs = memory.logs.filter((l) => !(l.log_date === date && l.slot === slot)).concat(row);
     return row;
   }
-  const { data, error } = await supabase.from("meal_logs").upsert(row, { onConflict: "log_date,slot" }).select().single();
+  const { data, error } = await supabase.from("meal_logs").upsert(row, { onConflict: "user_id,log_date,slot" }).select().single();
   if (error) throw error;
   return data;
 }
@@ -311,10 +371,10 @@ export async function setPantryItem(ingredientId, name, quantity, unit = "g", ex
   // insert fails wholesale. Retry with just the core fields rather than losing
   // the whole shop.
   if (supabase) {
-    const first = await supabase.from("pantry").upsert(row, { onConflict: "ingredient_id" }).select().maybeSingle();
+    const first = await supabase.from("pantry").upsert(row, { onConflict: "user_id,ingredient_id" }).select().maybeSingle();
     if (!first.error) return first.data;
     const bare = { ingredient_id: ingredientId, name, quantity, unit, updated_at: row.updated_at };
-    const retry = await supabase.from("pantry").upsert(bare, { onConflict: "ingredient_id" }).select().maybeSingle();
+    const retry = await supabase.from("pantry").upsert(bare, { onConflict: "user_id,ingredient_id" }).select().maybeSingle();
     if (retry.error) throw retry.error;
     return retry.data;
   }
@@ -358,12 +418,12 @@ export async function stockPantryFromShop(items) {
     return rows;
   }
 
-  const full = await supabase.from("pantry").upsert(rows, { onConflict: "ingredient_id" }).select();
+  const full = await supabase.from("pantry").upsert(rows, { onConflict: "user_id,ingredient_id" }).select();
   if (!full.error) return full.data;
 
   // Older schema without category/low/display — write what it can take.
   const bare = rows.map(({ ingredient_id, name, quantity, unit, updated_at }) => ({ ingredient_id, name, quantity, unit, updated_at }));
-  const retry = await supabase.from("pantry").upsert(bare, { onConflict: "ingredient_id" }).select();
+  const retry = await supabase.from("pantry").upsert(bare, { onConflict: "user_id,ingredient_id" }).select();
   if (retry.error) throw retry.error;
   return retry.data;
 }
@@ -438,7 +498,7 @@ export async function setHaveEnough(ingredientId, enough) {
     return;
   }
   if (enough) {
-    const { error } = await supabase.from("have_enough").upsert({ ingredient_id: ingredientId, marked_at: new Date().toISOString() }, { onConflict: "ingredient_id" });
+    const { error } = await supabase.from("have_enough").upsert({ ingredient_id: ingredientId, marked_at: new Date().toISOString() }, { onConflict: "user_id,ingredient_id" });
     if (error) throw error;
   } else {
     const { error } = await supabase.from("have_enough").delete().eq("ingredient_id", ingredientId);

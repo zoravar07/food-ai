@@ -178,3 +178,65 @@ where status <> 'archived'
 -- reconcile. This holds the date he expects to shop, purely so the app can say
 -- "your first shop is in X days" instead of sitting there looking confused.
 alter table profile add column if not exists first_shop_date date;
+
+-- ============ v6: accounts ============
+-- Until now every table had one policy: "anon full access", ALL, using(true).
+-- RLS was enabled and permitted everything, which is the same as off but harder
+-- to notice — and the anon key is inlined in the JS bundle, so anyone who opened
+-- devtools could read and write the lot.
+--
+-- This is single-user auth, not multi-user: one account, real policies. The
+-- schema is shaped so adding a second person later is a sign-up form rather
+-- than another migration.
+
+alter table profile       add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table weeks         add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table meal_logs     add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table pantry        add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table grocery_shops add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table custom_items  add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table rules         add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+alter table have_enough   add column if not exists user_id uuid references auth.users(id) on delete cascade default auth.uid();
+
+-- Free-text food preferences, so the prompt stops hardcoding one person's tastes.
+alter table profile add column if not exists food_notes text;
+
+-- Keys that would collide the moment a second account existed: two people can't
+-- both own chicken, or both log Tuesday lunch.
+alter table pantry       drop constraint if exists pantry_pkey;
+alter table pantry       add  constraint pantry_pkey primary key (user_id, ingredient_id);
+alter table have_enough  drop constraint if exists have_enough_pkey;
+alter table have_enough  add  constraint have_enough_pkey primary key (user_id, ingredient_id);
+alter table meal_logs    drop constraint if exists meal_logs_log_date_slot_key;
+create unique index if not exists meal_logs_user_date_slot on meal_logs (user_id, log_date, slot);
+create unique index if not exists profile_user_key on profile (user_id);
+
+-- The old blanket policies go. Reads and writes are scoped to the signed-in
+-- user; the `user_id is null` arm is transitional, so rows written before there
+-- were accounts stay visible and can be claimed on first sign-in. It comes out
+-- in v7 once that's done.
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['profile','weeks','meal_logs','pantry','grocery_shops','custom_items','rules','have_enough']
+  loop
+    execute format('drop policy if exists %I on %I', 'anon full access', tbl);
+    execute format('drop policy if exists %I on %I', 'owner access', tbl);
+    execute format(
+      'create policy %I on %I for all to authenticated using (user_id = auth.uid() or user_id is null) with check (user_id = auth.uid() or user_id is null)',
+      'owner access', tbl);
+  end loop;
+end $$;
+
+-- Seed lists stay shared for now: they hold no personal data and there is one
+-- account. Scoping them per-user is a multi-user follow-up, not a security fix.
+do $$
+declare tbl text;
+begin
+  foreach tbl in array array['staples','supplements']
+  loop
+    execute format('drop policy if exists %I on %I', 'anon full access', tbl);
+    execute format('drop policy if exists %I on %I', 'shared read-write', tbl);
+    execute format('create policy %I on %I for all to authenticated using (true) with check (true)', 'shared read-write', tbl);
+  end loop;
+end $$;
