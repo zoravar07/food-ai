@@ -186,7 +186,7 @@ function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly, missing = []
 }
 
 /* ================= APP ================= */
-export default function App() {
+function App({ session }) {
   const [tab, setTab] = useState("plan");
   const [profile, setProfile] = useState(store.DEFAULT_PROFILE);
   const [targets, setTargets] = useState(() => calculateTargets(store.DEFAULT_PROFILE));
@@ -367,6 +367,15 @@ export default function App() {
       else await makePlan(0, p);
       const prev = await store.getWeek(weekStartFor(-1, anchor));
       if (prev?.plan) setWeeks((w) => ({ ...w, [weekStartFor(-1, anchor)]: prev.plan }));
+      // Rows written before there were accounts have no owner. Claim them once
+      // so nothing has to be migrated by hand, and so signing in doesn't look
+      // like everything vanished.
+      if (session?.user?.id) {
+        try {
+          const claimed = await store.adoptOrphanRows(session.user.id);
+          if (claimed) console.info(`adopted ${claimed} pre-account rows`);
+        } catch {}
+      }
       const done = await store.getShoppedWeeks().catch(() => []);
       setShopped(done);
       // Open on the shop you still owe. Once this week is bought, that's next week.
@@ -705,7 +714,7 @@ export default function App() {
         week: plan, weekLabel: labelFor(weekOffset),
         planFrom: viewingNow ? todayIndex(anchor) : 0,
         swappableDays: viewingNow ? DAYS.slice(todayIndex(anchor)) : DAYS,
-        pantry, targets, rules, shoppedThisWeek: isShopped(0),
+        pantry, targets, rules, profile, shoppedThisWeek: isShopped(0),
       });
       setChat([...next, { role: "assistant", content: reply }]);
       for (const a of actions || []) await runAction(a);
@@ -1336,10 +1345,22 @@ export default function App() {
               ))}
             </Section>
 
+            <Section title="Food you love and won't touch" note="The AI reads this when planning and suggesting. It used to be hardcoded in the prompt.">
+              <TextBox value={profile.food_notes || ""} placeholder="e.g. loves chicken, salmon, steak, eggs, mince. Fruit after dinner. Likes spicy. Cuisines: everything. Hates bland diet food."
+                onSave={(v) => saveField("food_notes", v)} />
+            </Section>
+
             <Section title="Anything else" note="Allergies, kitchen quirks, what you're bored of — anything the AI should know.">
               <TextBox value={profile.notes || ""} placeholder="e.g. sharing a freezer so not much space, bored of chicken breast, flatmate has a nut allergy"
                 onSave={(v) => saveField("notes", v)} />
             </Section>
+
+            {session && (
+              <Section title="Account" note={session.user.email}>
+                <Btn kind="danger" size="md" style={{ width: "100%" }}
+                  onClick={async () => { await store.signOut(); }}>Sign out</Btn>
+              </Section>
+            )}
           </>
         )}
       </div>
@@ -1459,4 +1480,76 @@ function AddItem({ onAdd }) {
       <Btn kind="solid" size="md" onClick={go}>Add</Btn>
     </div>
   );
+}
+
+/* ---------------- auth ---------------- */
+function SignIn() {
+  const [mode, setMode] = useState("in");        // "in" | "up"
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function go(e) {
+    e?.preventDefault();
+    if (busy || !email || !pw) return;
+    setBusy(true); setMsg(null);
+    try {
+      if (mode === "up") {
+        const s = await store.signUp(email.trim(), pw);
+        // No session back means the project requires email confirmation.
+        if (!s) setMsg({ ok: true, text: "Check your email to confirm, then sign in." });
+      } else {
+        await store.signIn(email.trim(), pw);
+      }
+    } catch (err) {
+      setMsg({ ok: false, text: err?.message || "That didn't work." });
+    }
+    setBusy(false);
+  }
+
+  const field = { width: "100%", padding: "13px 14px", borderRadius: 12, background: t.card, border: `1px solid ${t.line}`, color: t.text, marginBottom: 10 };
+  return (
+    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 18px" }}>
+      <form onSubmit={go} style={{ width: "100%", maxWidth: 340 }}>
+        <h1 style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.03em", margin: "0 0 4px" }}>hungryvar</h1>
+        <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 22px", lineHeight: 1.5 }}>
+          {mode === "up" ? "Create your account. Your plans, pantry and logs stay yours." : "Sign in to reach your plan."}
+        </p>
+        <input style={field} type="email" autoComplete="email" placeholder="email"
+          value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input style={field} type="password" autoComplete={mode === "up" ? "new-password" : "current-password"}
+          placeholder="password" value={pw} onChange={(e) => setPw(e.target.value)} />
+        {msg && (
+          <div style={{ fontSize: 13, color: msg.ok ? t.teal : t.coral, margin: "2px 0 12px", lineHeight: 1.45 }}>{msg.text}</div>
+        )}
+        <Btn kind="primary" size="lg" style={{ width: "100%" }} onClick={go} disabled={busy}>
+          {busy ? "…" : mode === "up" ? "Create account" : "Sign in"}
+        </Btn>
+        <button type="button" onClick={() => { setMode(mode === "up" ? "in" : "up"); setMsg(null); }}
+          style={{ background: "none", border: "none", color: t.peri, fontSize: 13.5, fontWeight: 600, marginTop: 14, width: "100%", fontFamily: "inherit" }}>
+          {mode === "up" ? "I already have an account" : "Create an account"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+/** Decides whether there's anyone to show the app to. Without Supabase
+ *  configured the app runs on its in-memory store, which has no accounts. */
+export default function Root() {
+  const [session, setSession] = useState(undefined);   // undefined = still checking
+
+  useEffect(() => {
+    if (!store.isConfigured) { setSession(null); return; }
+    store.getSession().then((s) => setSession(s)).catch(() => setSession(null));
+    return store.onAuthChange((s) => setSession(s));
+  }, []);
+
+  if (!store.isConfigured) return <App session={null} />;
+  if (session === undefined) {
+    return <div style={{ background: t.bg, minHeight: "100vh" }} />;
+  }
+  if (!session) return <SignIn />;
+  return <App key={session.user.id} session={session} />;
 }

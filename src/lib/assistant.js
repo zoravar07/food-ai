@@ -6,34 +6,34 @@
 import { kitchenAmount } from "./foodDatabase.js";
 
 
-const USER_CONTEXT = `
-You are hungryvar, a personal nutrition and meal-planning assistant for one specific user.
+/** Who the assistant is talking to, built from the profile rather than baked in.
+ *  This used to be a hardcoded block naming his age, weight, body fat and the
+ *  street he lives on. That was wrong twice over: it went stale the moment he
+ *  changed his weight in Settings, and it would have shipped one person's body
+ *  composition and home area into everyone else's prompt. */
+function userContext(profile = {}, targets = {}) {
+  const p = profile;
+  const goalWords = {
+    maintain: "maintain weight", recomp: "slow recomposition",
+    mild_cut: "lean down gently", cut: "cut more aggressively",
+  };
+  const bits = [];
+  if (p.age || p.sex) bits.push([p.age && `${p.age}yo`, p.sex].filter(Boolean).join(" "));
+  if (p.height_cm) bits.push(`${p.height_cm}cm`);
+  if (p.weight_kg) bits.push(`${p.weight_kg}kg`);
+
+  return `
+You are hungryvar, a personal nutrition and meal-planning assistant for one specific person.
 
 ABOUT HIM:
-- 19yo male, 6'1" (185cm), ~72.5kg, roughly 14% body fat.
-- Goal: lean athletic physique — V-taper, bigger arms/chest/back, decent legs.
-  Wants to lose stubborn belly and face fat while keeping/building muscle.
-- Trains 5x/week: chest+bis, shoulders+tris, back+legs, shoulders+tris+bis, rest.
-- Daily targets: ~2440 kcal, ~174g protein, ~73g fat, ~272g carbs.
-  High potassium (debloat), moderate sodium, 30g+ fibre.
-- Takes creatine daily (no calories) and one standalone whey shake.
-  He does NOT like whey mixed into food — keep it as a separate drink.
-- Lives at university in London (Somers Close, NW1), shares a big kitchen with 3 others.
-- Weekly grocery budget: £60-65 max. Shops once a week.
-
-FOOD PREFERENCES:
-- Loves: chicken (all cuts), salmon, steak, eggs, beef/turkey mince, pork (new to cooking it).
-- Has fruit after dinner most nights to handle sweet cravings — watermelon, kiwi,
-  orange, grapes, pineapple, or a yoghurt bowl.
-- Carbs: rice, potatoes, sweet potato, pasta, bread/pita/wraps, oats, noodles.
-- Cuisines: genuinely everything — Middle Eastern, Chinese, Japanese, Indian,
-  Mediterranean, Mexican, British/American. Keep dishes SIMPLE but flavourful.
-- Likes spicy food. Big foodie — hates boring/plain "diet food".
-- Veg: loves leafy greens, asparagus, broccoli, cucumber, zucchini. DISLIKES CORN.
-- Happy with indulgent-but-tracked meals: chicken nuggets, schnitzel, quesadillas,
-  burgers, loaded potatoes. Breaded/fried is fine in moderation.
-- Prefers cooking fresh, under 30 minutes. Dislikes batch-cooking and reheating leftovers.
-- No allergies.
+${bits.length ? `- ${bits.join(", ")}.` : ""}
+- Goal: ${goalWords[p.goal] || p.goal || "not set"}. Trains ${p.training_days ?? "?"}x a week.
+- Daily targets: ~${targets.targetKcal ?? "?"} kcal, ~${targets.protein ?? "?"}g protein, ~${targets.fat ?? "?"}g fat, ~${targets.carbs ?? "?"}g carbs.
+- Weekly grocery budget: £${p.budget_cap ?? 65}. Cooks fresh, under ${p.max_cook_minutes ?? 30} minutes.
+${p.goal_notes ? `- In his words: ${p.goal_notes}` : ""}
+${p.food_notes ? `\nFOOD HE LIKES AND DOESN'T:\n${p.food_notes}` : ""}
+${p.dislikes?.length ? `- Never plan these, ever: ${p.dislikes.join(", ")}.` : ""}
+${p.notes ? `\nANYTHING ELSE HE'S TOLD YOU:\n${p.notes}` : ""}
 
 HOW TO RESPOND:
 - Be concise and practical. He's cooking in a student kitchen, not writing a thesis.
@@ -56,8 +56,9 @@ HOW TO RESPOND:
   add the new one in the same reply.
 - When suggesting swaps, respect his macros, budget and what's already in his pantry.
 - If he says he can't find an ingredient while shopping, give 2-3 realistic UK supermarket alternatives.
-- Never suggest corn. Never suggest mixing whey into food.
+- Never mix protein powder into food — he takes it as a separate shake.
 `;
+}
 
 /**
  * If the model wants the app to DO something (swap a meal, add to list),
@@ -167,7 +168,7 @@ ${runOut.length ? `\nRun out of: ${runOut.map((p) => p.name).join(", ")}` : ""}
 ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- ${l.slot}: ${l.status}${l.meal_name ? ` (${l.meal_name})` : ""}`).join("\n")}` : ""}
 `.trim();
 
-  const systemPrompt = `${USER_CONTEXT}\n\n${contextBlock}\n\n${ACTION_INSTRUCTIONS}`;
+  const systemPrompt = `${userContext(context.profile, context.targets)}\n\n${contextBlock}\n\n${ACTION_INSTRUCTIONS}`;
 
   const res = await fetch("/api/chat", {
     method: "POST",
