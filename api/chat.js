@@ -7,6 +7,38 @@
 
 const PROVIDER = process.env.AI_PROVIDER || "gemini";
 
+// The Gemini key is server-side, but the endpoint holding it was open to anyone
+// who knew the URL — so the key was private and the spending wasn't. Every
+// request now has to carry a live Supabase session.
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON = process.env.VITE_SUPABASE_ANON_KEY;
+
+/** The signed-in user behind this request, or null. Asks Supabase rather than
+ *  checking the signature locally: it costs one fast round trip and, unlike a
+ *  local check, it honours sign-outs and deleted accounts immediately. */
+async function userFor(req) {
+  // Missing config must fail closed. Treating it as "skip the check" would
+  // silently reopen the hole the next time an env var goes astray.
+  if (!SUPABASE_URL || !SUPABASE_ANON) return null;
+
+  const header = req.headers.authorization || req.headers.Authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return null;
+    const user = await res.json();
+    // The anon key is itself a valid JWT but belongs to no user, so the id is
+    // what actually distinguishes a session from "any well-formed token".
+    return user && user.id ? user : null;
+  } catch {
+    return null;
+  }
+}
+
 const MODELS = {
   primary: "gemini-3.1-flash-lite",
   fallback: "gemini-3.6-flash", // used automatically if primary is rate-limited
@@ -58,6 +90,11 @@ async function callGemini(model, systemPrompt, messages) {
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const user = await userFor(req);
+  if (!user) {
+    return res.status(401).json({ error: "Sign in to use the assistant" });
   }
 
   try {
