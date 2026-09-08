@@ -855,8 +855,11 @@ export default function App() {
 
   const allTicked = grocery?.items.length > 0 && grocery.items.every((i) => checked[i.id]);
 
+  // Installed on iOS the app paints under the status bar, so the top needs the
+  // same safe-area inset the bottom nav already has, or the title sits behind
+  // the clock.
   return (
-    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", paddingBottom: 78 }}>
+    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", paddingTop: "env(safe-area-inset-top)", paddingBottom: 78 }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;overscroll-behavior-y:none}
         button{font-family:inherit}input,select,textarea{font-family:inherit;outline:none;font-size:16px}
