@@ -6,7 +6,8 @@ import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js"
 import { recipes } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
-import { DAYS, iso, weekStartFor, dateForDay, weekLabel, todayIndex } from "./lib/weeks.js";
+import { DAY_NAMES, DAY_NAMES_LONG, iso, weekStartFor, dateForDay, weekLabel,
+         todayIndex, dayOffsetToday, daysFrom, resolveAnchor } from "./lib/weeks.js";
 import { shopView } from "./lib/shopView.js";
 
 const t = {
@@ -14,7 +15,6 @@ const t = {
   line: "#2C3644", text: "#F0F3F7", soft: "#8D96A6", dim: "#5F6879",
   teal: "#4DD4B8", amber: "#F5A962", peri: "#7C9CFF", coral: "#FF7A7A", violet: "#B98CFF",
 };
-const DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", cupboard: "Cupboard" };
 const TABS = [
   { id: "groceries", label: "Shop", icon: "🛒" },
@@ -192,7 +192,7 @@ export default function App() {
   const [targets, setTargets] = useState(() => calculateTargets(store.DEFAULT_PROFILE));
   const [weekOffset, setWeekOffset] = useState(0);
   const [shopOffset, setShopOffset] = useState(0);
-  const [dayIdx, setDayIdx] = useState(todayIndex());
+  const [dayIdx, setDayIdx] = useState(0);
   const [weeks, setWeeks] = useState({});          // { "2026-08-24": plan }
   const [grocery, setGrocery] = useState(null);
   const [logs, setLogs] = useState({});
@@ -225,7 +225,32 @@ export default function App() {
   const shopping = useRef(false);        // guards a double-tap stocking twice
   const lastSettings = useRef(null);
 
-  const wsKey = weekStartFor(weekOffset);
+  // The week starts on the day he last shopped. Before the first shop that's the
+  // date he expects to shop; failing that, today, so there is always a week to
+  // show. One value, resolved here, and every week calculation takes it.
+  const anchor = resolveAnchor({
+    lastShopDate: shopped[0]?.week_start,
+    firstShopDate: profile.first_shop_date,
+  });
+  const DAYS = daysFrom(anchor);              // e.g. a Tuesday shop -> Tue…Mon
+  const sinceShop = dayOffsetToday(anchor);   // <0 not started, 0-6 in plan, >6 overdue
+  const preFirstShop = booted && shopped.length === 0;
+  // Past the end of the plan he bought. The cycle advances when he shops, never
+  // because time passed, so rather than rolling him into a week nothing was
+  // bought for, those days show as unplanned and he's offered a way forward.
+  const overdue = booted && !preFirstShop && sinceShop > 6;
+
+  // "This week" is wrong for a week that hasn't started: before the first shop
+  // the anchor is a date in the future, so offset 0 is his FIRST week, not this
+  // one, and the labels say so.
+  const labelFor = (offset) => {
+    if (!preFirstShop) return weekLabel(offset, anchor);
+    if (offset === 0) return "Your first week";
+    if (offset === 1) return "The week after";
+    return weekLabel(offset, anchor);
+  };
+
+  const wsKey = weekStartFor(weekOffset, anchor);
   const plan = weeks[wsKey] || null;
   const day = plan?.[dayIdx] || null;
 
@@ -233,18 +258,18 @@ export default function App() {
   // calendar happened to be showing, so scrolling back to today silently
   // swapped next week's list — the one you just generated — for the week
   // you'd already shopped.
-  const shopKey = weekStartFor(shopOffset);
+  const shopKey = weekStartFor(shopOffset, anchor);
   const shopPlan = weeks[shopKey] || null;
-  const shopRow = (offset) => shopped.find((r) => r.week_start === weekStartFor(offset)) || null;
+  const shopRow = (offset) => shopped.find((r) => r.week_start === weekStartFor(offset, anchor)) || null;
   const isShopped = (offset) => Boolean(shopRow(offset));
 
   // Everything the Shop tab shows and allows comes out of one pure function, so
   // the cursor and the clock can't quietly get mixed up in a JSX ternary.
-  // weekStartFor(0) is the ONLY place the real week enters this decision.
+  // weekStartFor(0, anchor) is the ONLY place the real week enters this decision.
   const view = shopView({
     weekStart: shopKey,
-    realWeekStart: weekStartFor(0),
-    label: weekLabel(shopOffset),
+    realWeekStart: weekStartFor(0, anchor),
+    label: labelFor(shopOffset),
     hasPlan: Boolean(shopPlan),
     bought: isShopped(shopOffset),
     boughtOn: shopRow(shopOffset)?.shopped_at?.slice(0, 10) || null,
@@ -259,7 +284,7 @@ export default function App() {
    *  for days still to come in a week already shopped for — that plan assumed
    *  the food was there, and now it isn't. */
   const missingFor = (meal, offset, dIdx) => {
-    if (offset !== 0 || dIdx < todayIndex() || !isShopped(0)) return [];
+    if (offset !== 0 || dIdx < todayIndex(anchor) || !isShopped(0)) return [];
     return (meal.items || [])
       .filter(([id]) => id !== "whey" && outOfStock.has(id))
       .map(([id]) => allIngredients.find((x) => x.id === id)?.name || id);
@@ -268,11 +293,8 @@ export default function App() {
   // regenerate this one and never a week whose food is already in the kitchen.
   const draftOffset = isShopped(0) ? 1 : 0;
 
-  // No shop has ever happened, so there is no anchor, no active week, and an
-  // empty kitchen by definition. Nothing can have run out and there is nothing
-  // to reconcile — the app should say where it is rather than nag about a week
-  // he isn't living in yet.
-  const preFirstShop = booted && shopped.length === 0;
+  // Before the first shop there is no real anchor and an empty kitchen by
+  // definition, so nothing can have run out and there is nothing to reconcile.
   const firstShopIn = (() => {
     if (!profile.first_shop_date) return null;
     const [y, m, d] = String(profile.first_shop_date).split("-").map(Number);
@@ -282,6 +304,12 @@ export default function App() {
   })();
 
   useEffect(() => { boot(); }, []);
+  // dayIdx starts at 0 because the anchor isn't known until the profile and shop
+  // history load; snap to the real day once it is, and only while viewing now.
+  useEffect(() => {
+    if (booted && weekOffset === 0 && sinceShop >= 0 && sinceShop <= 6) setDayIdx(sinceShop);
+    /* eslint-disable-next-line */
+  }, [booted, anchor]);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, busy]);
 
   // Shop day. Keyed off the real device date — not dayIdx, which follows
@@ -301,15 +329,15 @@ export default function App() {
   // either he hasn't been yet or he went and forgot to tap "Groceries done" —
   // and in that second case the pantry is stale, so every list netted against it
   // is wrong and nothing currently notices.
-  const staleShop = booted && !preFirstShop && !shopCheckOff && todayIndex() >= 2
-    && Boolean(weeks[weekStartFor(0)]) && !isShopped(0);
+  const staleShop = booted && !preFirstShop && !shopCheckOff && todayIndex(anchor) >= 2
+    && Boolean(weeks[weekStartFor(0, anchor)]) && !isShopped(0);
 
   useEffect(() => {
-    try { setShopCheckOff(localStorage.getItem("hv_shop_check") === weekStartFor(0)); } catch {}
+    try { setShopCheckOff(localStorage.getItem("hv_shop_check") === weekStartFor(0, anchor)); } catch {}
   }, [booted]);
 
   function dismissShopCheck() {
-    try { localStorage.setItem("hv_shop_check", weekStartFor(0)); } catch {}
+    try { localStorage.setItem("hv_shop_check", weekStartFor(0, anchor)); } catch {}
     setShopCheckOff(true);
   }
 
@@ -321,7 +349,7 @@ export default function App() {
 
   /** "Logged" and "log cleared" said nothing about what changed. Every entry in
    *  Changes names the day, the slot and the outcome so it reads as a sentence. */
-  const dayName = (offset, dIdx) => dateForDay(offset, dIdx).toLocaleDateString("en-GB", { weekday: "long" });
+  const dayName = (offset, dIdx) => dateForDay(offset, dIdx, anchor).toLocaleDateString("en-GB", { weekday: "long" });
   const slotOf = (meal) => meal.slot.toLowerCase();
 
   /** Hand the chat an editable starting line rather than firing a swap blind. */
@@ -334,15 +362,15 @@ export default function App() {
     try {
       const p = await store.getProfile();
       setProfile(p); setTargets(calculateTargets(p));
-      const cur = await store.getWeek(weekStartFor(0));
-      if (cur?.plan) setWeeks((w) => ({ ...w, [weekStartFor(0)]: cur.plan }));
+      const cur = await store.getWeek(weekStartFor(0, anchor));
+      if (cur?.plan) setWeeks((w) => ({ ...w, [weekStartFor(0, anchor)]: cur.plan }));
       else await makePlan(0, p);
-      const prev = await store.getWeek(weekStartFor(-1));
-      if (prev?.plan) setWeeks((w) => ({ ...w, [weekStartFor(-1)]: prev.plan }));
+      const prev = await store.getWeek(weekStartFor(-1, anchor));
+      if (prev?.plan) setWeeks((w) => ({ ...w, [weekStartFor(-1, anchor)]: prev.plan }));
       const done = await store.getShoppedWeeks().catch(() => []);
       setShopped(done);
       // Open on the shop you still owe. Once this week is bought, that's next week.
-      setShopOffset(done.some((r) => r.week_start === weekStartFor(0)) ? 1 : 0);
+      setShopOffset(done.some((r) => r.week_start === weekStartFor(0, anchor)) ? 1 : 0);
       await Promise.all([loadPantry(), loadRules(), loadLogs(), loadExtras()]);
     } catch (e) { console.error(e); await makePlan(0, store.DEFAULT_PROFILE); }
     setBooted(true);
@@ -357,7 +385,7 @@ export default function App() {
   };
   async function loadLogs() {
     try {
-      const rows = await store.getLogsForRange(iso(dateForDay(-1, 0)), iso(dateForDay(1, 6)));
+      const rows = await store.getLogsForRange(iso(dateForDay(-1, 0, anchor)), iso(dateForDay(1, 6, anchor)));
       const m = {}; rows.forEach((r) => { m[`${r.log_date}|${r.slot}`] = r; });
       setLogs(m);
     } catch {}
@@ -405,7 +433,7 @@ export default function App() {
   // opened all week, say — load it, and build one on the spot if there is none,
   // rather than leaving the Shop tab empty.
   async function ensureShopPlan(offset) {
-    const key = weekStartFor(offset);
+    const key = weekStartFor(offset, anchor);
     if (weeks[key]) return;
     const stored = await store.getWeek(key).catch(() => null);
     if (stored?.plan) { setWeeks((w) => ({ ...w, [key]: stored.plan })); return; }
@@ -434,7 +462,7 @@ export default function App() {
     if (lastSettings.current === settingsSig) return;
     lastSettings.current = settingsSig;
     const t = setTimeout(() => {
-      const key = weekStartFor(draftOffset);
+      const key = weekStartFor(draftOffset, anchor);
       if (!weeks[key] || shopped.some((r) => r.week_start === key) || busy) return;
       makePlan(draftOffset, profile, { quiet: true });
     }, 3000);
@@ -448,9 +476,9 @@ export default function App() {
     // Callers can pass rules explicitly: React state lags a just-saved rule by a
     // render, and generating without it would silently drop what he just asked for.
     const rs = rulesArg || rules;
-    const opts = { ...interpretRules(rs), blocked: excludeDisliked(prof.dislikes || []) };
+    const opts = { ...interpretRules(rs), blocked: excludeDisliked(prof.dislikes || []), days: daysFrom(weekStartFor(offset, anchor)) };
     const p = generateWeek(tg, prof.budget_cap || 65, 60, opts);
-    const key = weekStartFor(offset);
+    const key = weekStartFor(offset, anchor);
     setWeeks((w) => ({ ...w, [key]: p }));
     setShopOffset(offset);   // the shop follows the plan you just generated
     try {
@@ -462,8 +490,8 @@ export default function App() {
       if (spent.length) { await store.removeRules(spent.map((m) => m.id)); await loadRules(); }
     } catch (e) { console.error(e); flash("Generated but not saved"); }
     setBusy(false);
-    if (quiet) flash(`${weekLabel(offset)} rebuilt around your new rules`);
-    else flash(offset === weekOffset ? "New plan ready" : `${weekLabel(offset)} planned`);
+    if (quiet) flash(`${labelFor(offset)} rebuilt around your new rules`);
+    else flash(offset === weekOffset ? "New plan ready" : `${labelFor(offset)} planned`);
   }
 
   async function applyPlan(next) {
@@ -499,7 +527,7 @@ export default function App() {
   }
 
   async function mark(meal, status) {
-    const date = iso(dateForDay(weekOffset, dayIdx));
+    const date = iso(dateForDay(weekOffset, dayIdx, anchor));
     const prev = logs[`${date}|${meal.slot}`];
 
     if (status === "ate_out") {
@@ -637,7 +665,10 @@ export default function App() {
     }
     // The shop actually happened, so this week's plan stops being a draft and
     // becomes the one being eaten from. Nothing else can tell us that.
-    try { await store.markWeekShopped(shopKey); await loadShopped(); } catch {}
+    // Shopping today makes today the start of the week: the plan is re-keyed so
+    // the cycle follows him rather than a weekday.
+    const shopDate = iso(new Date());
+    try { await store.markWeekShopped(shopKey, shopDate); await loadShopped(); } catch {}
     setChecked({});
     setTab("pantry");
     // Roll straight on to the next shop. Pointing shopOffset at it is enough —
@@ -647,7 +678,7 @@ export default function App() {
     flash(`Shopped ${picked.length} item${picked.length === 1 ? "" : "s"} into the pantry`, async () => {
       // The shop is undone in full: the week stops counting as bought, and the
       // Shop tab goes back to it rather than stranding you on next week.
-      try { await store.unmarkWeekShopped(shopKey); await loadShopped(); } catch {}
+      try { await store.unmarkWeekShopped(shopDate, shopKey); await loadShopped(); } catch {}
       setShopOffset(shopOffset);
       // Undo used to delete the pantry rows outright, so 300g of chicken you
       // already had before the shop vanished with it. Put back what was there.
@@ -671,9 +702,9 @@ export default function App() {
       // now the same week, and the model is told which week that is.
       const viewingNow = weekOffset === 0;
       const { reply, actions } = await askAssistant(next, {
-        week: plan, weekLabel: weekLabel(weekOffset),
-        planFrom: viewingNow ? todayIndex() : 0,
-        swappableDays: viewingNow ? DAYS.slice(todayIndex()) : DAYS,
+        week: plan, weekLabel: labelFor(weekOffset),
+        planFrom: viewingNow ? todayIndex(anchor) : 0,
+        swappableDays: viewingNow ? DAYS.slice(todayIndex(anchor)) : DAYS,
         pantry, targets, rules, shoppedThisWeek: isShopped(0),
       });
       setChat([...next, { role: "assistant", content: reply }]);
@@ -745,7 +776,7 @@ export default function App() {
       await applyPlan(picked.week);
       const note = picked.cost > cap ? ` — £${picked.cost.toFixed(2)}, over your £${cap} cap`
         : picked.moved ? " — other meals adjusted to stay in budget" : "";
-      const full = DAYS_LONG[di] || a.day;
+      const full = dateForDay(weekOffset, di, anchor).toLocaleDateString("en-GB", { weekday: "long" });
       // Undo used to restore React state only, leaving the swap in the database.
       flash(`Swapped ${full} ${String(a.slot).toLowerCase()} to ${picked.tpl.name}${note}`, () => applyPlan(before));
       return;
@@ -762,7 +793,7 @@ export default function App() {
         setRules(fresh);
         // "Add it to next week" should change next week, not wait for the next
         // time he happens to regenerate. Never touches a week already bought for.
-        const key = weekStartFor(draftOffset);
+        const key = weekStartFor(draftOffset, anchor);
         if (!shopped.some((r) => r.week_start === key)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
         else flash("Craving noted");
       } catch {}
@@ -789,22 +820,22 @@ export default function App() {
       // row he tapped — not on whatever day the model named.
       // Eating happens in the real week, never the one being browsed — you can't
       // have eaten a meal next Tuesday.
-      const di = a.day ? DAYS.indexOf(a.day) : (weekOffset === 0 ? dayIdx : todayIndex());
-      const date = pendingLog.current?.date || iso(dateForDay(0, di >= 0 ? di : todayIndex()));
+      const di = a.day ? DAYS.indexOf(a.day) : (weekOffset === 0 ? dayIdx : todayIndex(anchor));
+      const date = pendingLog.current?.date || iso(dateForDay(0, di >= 0 ? di : todayIndex(anchor)));
       const slot = pendingLog.current?.slot || a.slot || "Lunch";
       const row = { log_date: date, slot, status: "ate_out", meal_name: a.description || "ate out", kcal: +a.kcal || 0, protein: +a.protein || 0, carbs: +a.carbs || 0, fat: +a.fat || 0 };
       setLogs((p) => ({ ...p, [`${date}|${row.slot}`]: row }));
       try { await store.logMeal({ date, slot: row.slot, status: "ate_out", mealName: row.meal_name, kcal: row.kcal, protein: row.protein, carbs: row.carbs, fat: row.fat, note: a.description }); } catch {}
-      flash(`Logged ${(DAYS_LONG[DAYS.indexOf(DAYS[di >= 0 ? di : todayIndex()])] || "today")} ${String(slot).toLowerCase()} out: ${row.meal_name}, ${row.kcal} kcal`);
+      flash(`Logged ${dateForDay(0, di >= 0 ? di : todayIndex(anchor), anchor).toLocaleDateString("en-GB", { weekday: "long" })} ${String(slot).toLowerCase()} out: ${row.meal_name}, ${row.kcal} kcal`);
     }
   }
 
   /* ------- derived ------- */
-  const dayLog = (slot) => logs[`${iso(dateForDay(weekOffset, dayIdx))}|${slot}`];
+  const dayLog = (slot) => logs[`${iso(dateForDay(weekOffset, dayIdx, anchor))}|${slot}`];
   const consumed = (() => {
     const acc = { kcal: 0, protein: 0, carbs: 0, fat: 0, fibre: 0, potassium: 0 };
     if (!day) return acc;
-    const date = iso(dateForDay(weekOffset, dayIdx));
+    const date = iso(dateForDay(weekOffset, dayIdx, anchor));
     day.meals.forEach((m) => {
       const log = logs[`${date}|${m.slot}`];
       if (!log || log.status === "skipped") return;
@@ -848,7 +879,7 @@ export default function App() {
 
       {confirmNew && (
         <Modal onClose={() => setConfirmNew(false)} title="Generate a new plan?"
-          body={`This replaces the meals for ${weekLabel(weekOffset).toLowerCase()} and rebuilds the shopping list. The old plan stays in your history.`}>
+          body={`This replaces the meals for ${labelFor(weekOffset).toLowerCase()} and rebuilds the shopping list. The old plan stays in your history.`}>
           <Btn kind="primary" size="lg" style={{ flex: 1 }} onClick={() => makePlan()}>Generate</Btn>
           <Btn size="lg" onClick={() => setConfirmNew(false)}>Cancel</Btn>
         </Modal>
@@ -916,9 +947,9 @@ export default function App() {
               <Btn size="sm" kind="ghost" style={{ border: "none", opacity: weekOffset <= -8 ? .3 : 1 }}
                 onClick={() => { if (weekOffset > -8) { setWeekOffset((o) => o - 1); loadWeekIfNeeded(weekOffset - 1); } }}>←</Btn>
               <div style={{ textAlign: "center", flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 700 }}>{weekLabel(weekOffset)}</div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>{labelFor(weekOffset)}</div>
                 <div style={{ fontSize: 11.5, color: t.dim }}>
-                  {dateForDay(weekOffset, 0).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {dateForDay(weekOffset, 6).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                  {dateForDay(weekOffset, 0, anchor).toLocaleDateString("en-GB", { day: "numeric", month: "short" })} – {dateForDay(weekOffset, 6, anchor).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
                 </div>
               </div>
               <Btn size="sm" kind="ghost" style={{ border: "none", opacity: weekOffset >= 8 ? .3 : 1 }}
@@ -928,19 +959,19 @@ export default function App() {
             {!plan ? (
               <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center" }}>
                 <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>Not generated yet</div>
-                <div style={{ fontSize: 14, color: t.soft, marginBottom: 20, lineHeight: 1.5 }}>There's no plan for {weekLabel(weekOffset).toLowerCase()}.</div>
+                <div style={{ fontSize: 14, color: t.soft, marginBottom: 20, lineHeight: 1.5 }}>There's no plan for {labelFor(weekOffset).toLowerCase()}.</div>
                 <Btn kind="primary" size="lg" onClick={() => makePlan(weekOffset)} disabled={busy}>{busy ? "Generating…" : "Generate now"}</Btn>
               </div>
             ) : (
               <>
                 <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 6, marginBottom: 18 }}>
                   {DAYS.map((d, i) => {
-                    const on = i === dayIdx, isToday = weekOffset === 0 && i === todayIndex();
+                    const on = i === dayIdx, isToday = weekOffset === 0 && i === sinceShop;
                     return (
                       <button key={d} onClick={() => setDayIdx(i)}
                         style={{ flex: "1 0 60px", background: on ? t.cardHi : "transparent", border: `1px solid ${on ? t.peri : t.line}`, borderRadius: 13, padding: "10px 4px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: isToday ? t.peri : t.soft, textTransform: "uppercase" }}>{d}</span>
-                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: t.text }}>{dateForDay(weekOffset, i).getDate()}</span>
+                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: t.text }}>{dateForDay(weekOffset, i, anchor).getDate()}</span>
                       </button>
                     );
                   })}
@@ -976,6 +1007,22 @@ export default function App() {
         )}
 
         {/* ---------- GROCERIES ---------- */}
+        {overdue && (tab === "plan" || tab === "groceries") && (
+          <div style={{ background: "rgba(245,169,98,.08)", border: `1px solid rgba(245,169,98,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 14 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 4 }}>
+              You're {sinceShop - 6} day{sinceShop - 6 === 1 ? "" : "s"} past this plan
+            </div>
+            <div style={{ fontSize: 13, color: t.soft, lineHeight: 1.5, marginBottom: 11 }}>
+              It covered the seven days from your last shop on {dateForDay(0, 0, anchor).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}.
+              Nothing was bought for since, so these days have no meals rather than being quietly rolled into a new week.
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn kind="good" size="sm" style={{ flex: 1 }} onClick={() => { setTab("groceries"); setShopOffset(1); }}>Shop for the next week</Btn>
+              <Btn size="sm" onClick={() => makePlan(0)}>Extend this one</Btn>
+            </div>
+          </div>
+        )}
+
         {tab === "groceries" && staleShop && (
           <div style={{ background: "rgba(245,169,98,.08)", border: `1px solid rgba(245,169,98,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 14 }}>
             <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 4 }}>Did you shop this week?</div>
@@ -998,7 +1045,7 @@ export default function App() {
             {/* One navigator for the whole tab, above everything, so the week
                 you're looking at is never in doubt. Browsing here changes which
                 week's data you see; it never changes what the app thinks the
-                date is — that comes from weekStartFor(0) inside shopView. */}
+                date is — that comes from weekStartFor(0, anchor) inside shopView. */}
             {preFirstShop && (
               <div style={{ background: "rgba(124,156,255,.08)", border: `1px solid rgba(124,156,255,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 12 }}>
                 <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Your first shop</div>
@@ -1308,7 +1355,7 @@ export default function App() {
   );
 
   async function loadWeekIfNeeded(offset) {
-    const key = weekStartFor(offset);
+    const key = weekStartFor(offset, anchor);
     if (weeks[key]) return;
     try { const w = await store.getWeek(key); if (w?.plan) setWeeks((x) => ({ ...x, [key]: w.plan })); } catch {}
   }

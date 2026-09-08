@@ -4,7 +4,7 @@
 // actions (like a meal swap) the app can actually execute.
 
 import { kitchenAmount } from "./foodDatabase.js";
-import { DAYS, todayIndex } from "./weeks.js";
+
 
 const USER_CONTEXT = `
 You are hungryvar, a personal nutrition and meal-planning assistant for one specific user.
@@ -99,7 +99,7 @@ Available actions:
     Never just describe the macros in text — the numbers must go in the action block
     or the app cannot record them.
 
-Valid day values: Sun Mon Tue Wed Thu Fri Sat
+Valid day values: the days listed under CURRENT STATE, and only those
 Valid slot values: Breakfast Lunch Snack Dinner
 Valid templateId values (use these exact ids for set_meal):
 BREAKFAST: greek_bowl, yoghurt_parfait, protein_smoothie, berry_smoothie, scrambled_eggs, fried_eggs_avo, omelette
@@ -139,11 +139,6 @@ export function parseAction(text) {
   }
 }
 
-/** Which weekdays are still ahead, so a swap can never land on a day that's gone. */
-function remainingDays() {
-  return DAYS.slice(todayIndex());
-}
-
 /**
  * @param {Array<{role:string, content:string}>} messages
  * @param {Object} context - { week, weekLabel, planFrom, swappableDays, pantry,
@@ -154,7 +149,7 @@ export async function askAssistant(messages, context = {}) {
   const runOut = (context.pantry || []).filter((p) => Number(p.quantity) <= 0 && p.category !== "cupboard");
 
   const label = context.weekLabel || "This week";
-  const swappable = context.swappableDays || remainingDays();
+  const swappable = context.swappableDays || [];
 
   const contextBlock = `
 CURRENT STATE:

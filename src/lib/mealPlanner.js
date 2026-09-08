@@ -6,7 +6,7 @@
 
 import { allIngredients, estimateItemCost } from "./foodDatabase.js";
 import { buildGroceryList } from "./groceryListGenerator.js";
-import { DAYS } from "./weeks.js";
+import { DAY_NAMES } from "./weeks.js";
 
 const allDb = allIngredients;
 const lookup = (id) => allDb.find((x) => x.id === id);
@@ -420,11 +420,12 @@ function ensureFavourites(week, targets, options = {}, placed = []) {
 }
 
 function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
-  const { favour = [], blocked = {}, leftovers = {} } = options;
+  // The week's day order comes from the anchor: a Tuesday shop gives Tue…Mon.
+  const { favour = [], blocked = {}, leftovers = {}, days: dayOrder = DAY_NAMES } = options;
   const pins = usablePins(options.pins, blocked);
   const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
   const expensiveCount = {};
-  const days = DAYS;
+  const days = dayOrder;
 
   const openedProteins = new Set();
 
@@ -708,11 +709,11 @@ export function interpretRules(rules = []) {
  *  it is the last resort when no candidate fitted — never used otherwise, because
  *  it is deliberately monotonous. */
 function cheapestWeek(targets, budgetCap, options = {}) {
-  const { blocked = {}, leftovers = {} } = options;
+  const { blocked = {}, leftovers = {}, days: dayOrder = DAY_NAMES } = options;
   const pins = usablePins(options.pins, blocked);
   const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner", "dessert"].map((sl) => [sl, cheapestTemplate(sl, blocked)]));
 
-  const week = DAYS.map((day) => {
+  const week = dayOrder.map((day) => {
     const pinned = (slot) => {
       const pin = pins.find((p) => p.day === day && p.slot === slot);
       return pin ? (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null : null;
