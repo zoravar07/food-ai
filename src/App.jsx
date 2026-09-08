@@ -14,6 +14,7 @@ const t = {
   line: "#2C3644", text: "#F0F3F7", soft: "#8D96A6", dim: "#5F6879",
   teal: "#4DD4B8", amber: "#F5A962", peri: "#7C9CFF", coral: "#FF7A7A", violet: "#B98CFF",
 };
+const DAYS_LONG = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", cupboard: "Cupboard" };
 const TABS = [
   { id: "groceries", label: "Shop", icon: "🛒" },
@@ -134,52 +135,52 @@ function RecipePage({ meal, onBack }) {
 /* ---------------- meal card ---------------- */
 function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly, missing = [] }) {
   const done = log?.status === "eaten", out = log?.status === "ate_out";
+  const kcal = Math.round(out ? (log?.kcal || 0) : meal.kcal);
+  const protein = Math.round(out ? (log?.protein || 0) : meal.protein);
   return (
-    <div style={{ background: t.card, border: `1px solid ${done ? "rgba(77,212,184,.35)" : missing.length ? "rgba(255,122,122,.35)" : t.line}`, borderRadius: 16, display: "flex", alignItems: "stretch", opacity: log?.status === "skipped" ? .5 : 1 }}>
+    <div style={{ background: t.card, border: `1px solid ${done ? "rgba(77,212,184,.35)" : missing.length ? "rgba(255,122,122,.35)" : t.line}`, borderRadius: 16, display: "flex", alignItems: "flex-start", gap: 2, opacity: log?.status === "skipped" ? .5 : 1, padding: "14px 14px 12px" }}>
       <button onClick={() => !readOnly && onMark(meal, done ? null : "eaten")}
-        style={{ background: "none", border: "none", padding: "16px 0 16px 16px", alignSelf: "flex-start" }}>
+        style={{ background: "none", border: "none", padding: "2px 10px 0 0", flexShrink: 0 }}>
         <div style={{ width: 26, height: 26, borderRadius: 8, border: `2px solid ${done ? t.teal : t.line}`, background: done ? t.teal : "transparent", color: t.bg, fontSize: 15, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{done ? "✓" : ""}</div>
       </button>
-      <div style={{ flex: 1, padding: "14px 12px", minWidth: 0 }}>
-        {/* Slot, time and macros are all attributes of the meal, so they share
-            one scannable line. The numbers he actually reads are weighted up so
-            they stay primary next to the dim prep time. */}
-        <div style={{ display: "flex", gap: 7, alignItems: "baseline", flexWrap: "wrap", marginBottom: 4 }}>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".07em" }}>{meal.slot}</span>
-          {meal.time && <span style={{ fontSize: 11.5, color: t.dim }}>· {meal.time} min</span>}
-          <span style={{ fontSize: 12.5, color: t.text, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>
-            · {Math.round(out ? (log?.kcal || 0) : meal.kcal)} kcal · {Math.round(out ? (log?.protein || 0) : meal.protein)}g protein
-          </span>
-          {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>· ate out</span>}
-          {missing.length > 0 && !out && (
-            <span style={{ fontSize: 11.5, color: t.coral, fontWeight: 600 }}>
-              · out of {missing.join(" & ").toLowerCase()}
-            </span>
-          )}
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Slot and time only. Four things on one line can't be made to fit a
+            360px phone deterministically, and "usually fits" means it wraps
+            badly some of the time. */}
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 3 }}>
+          {meal.slot}{meal.time ? ` · ${meal.time} min` : ""}
         </div>
 
         <div onClick={() => onOpen(meal)} style={{ fontSize: 16.5, fontWeight: 600, lineHeight: 1.25, cursor: "pointer" }}>
           {out && log?.meal_name ? log.meal_name : meal.name}
         </div>
 
-        {!out && (
-          <div style={{ display: "flex", gap: 7, marginTop: 10 }}>
-            <Btn size="sm" kind="solid" style={{ flex: 1 }} onClick={(e) => { e.stopPropagation(); onOpen(meal); }}>Recipe</Btn>
-            {!readOnly && (
-              <Btn size="sm" kind="solid" style={{ flex: 1, color: t.violet }} onClick={(e) => { e.stopPropagation(); onReplace(meal); }}>Replace</Btn>
-            )}
+        {/* Macros get their own line so they never wrap, and keep the weighting
+            that makes them read as the numbers that matter. */}
+        <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", marginTop: 4 }}>
+          <span style={{ fontSize: 12.5, color: t.text, fontWeight: 600, fontFamily: "'JetBrains Mono',monospace" }}>
+            {kcal} kcal · {protein}g protein
+          </span>
+          {out && <span style={{ fontSize: 11.5, color: t.amber, fontWeight: 600 }}>ate out</span>}
+          {missing.length > 0 && !out && (
+            <span style={{ fontSize: 11.5, color: t.coral, fontWeight: 600 }}>out of {missing.join(" & ").toLowerCase()}</span>
+          )}
+        </div>
+
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 6, marginTop: 11 }}>
+            {!out && <Btn size="sm" kind="solid" style={{ flex: 1, padding: "8px 6px" }} onClick={() => onOpen(meal)}>Recipe</Btn>}
+            {!out && <Btn size="sm" kind="solid" style={{ flex: 1, padding: "8px 6px", color: t.violet }} onClick={() => onReplace(meal)}>Replace</Btn>}
+            {/* Was a fixed-width vertical strip down the side of every card,
+                stealing ~44px from the content and squeezing itself. */}
+            <Btn size="sm" kind="solid" style={{ flex: 1, padding: "8px 6px", color: out ? t.amber : t.soft, background: out ? "rgba(245,169,98,.15)" : t.cardHi }}
+              onClick={() => onMark(meal, out && !hasEstimate(log) ? null : "ate_out")}>
+              {out ? "Edit" : "Ate out"}
+            </Btn>
           </div>
         )}
       </div>
-      {/* With a real estimate on the row this button EDITS it rather than
-          toggling it off — tapping it used to delete the macros and drop the
-          card back to the planned meal. */}
-      {!readOnly && (
-        <button onClick={() => onMark(meal, out && !hasEstimate(log) ? null : "ate_out")}
-          style={{ background: out ? "rgba(245,169,98,.15)" : "transparent", border: "none", borderLeft: `1px solid ${t.line}`, color: out ? t.amber : t.dim, padding: "0 14px", fontSize: 11.5, fontWeight: 600, borderRadius: "0 16px 16px 0" }}>
-          ate<br />out
-        </button>
-      )}
     </div>
   );
 }
@@ -217,9 +218,11 @@ export default function App() {
   const [shopped, setShopped] = useState([]);      // week_starts already shopped for
   const [booted, setBooted] = useState(false);
   const [shopCheckOff, setShopCheckOff] = useState(false);
+  const [confirmShop, setConfirmShop] = useState(null);
   const chatEnd = useRef(null);
   const pendingLog = useRef(null);   // where an AI macro estimate must land
   const autoPlanned = useRef(new Set());  // weeks already auto-generated this session
+  const shopping = useRef(false);        // guards a double-tap stocking twice
   const lastSettings = useRef(null);
 
   const wsKey = weekStartFor(weekOffset);
@@ -265,6 +268,19 @@ export default function App() {
   // regenerate this one and never a week whose food is already in the kitchen.
   const draftOffset = isShopped(0) ? 1 : 0;
 
+  // No shop has ever happened, so there is no anchor, no active week, and an
+  // empty kitchen by definition. Nothing can have run out and there is nothing
+  // to reconcile — the app should say where it is rather than nag about a week
+  // he isn't living in yet.
+  const preFirstShop = booted && shopped.length === 0;
+  const firstShopIn = (() => {
+    if (!profile.first_shop_date) return null;
+    const [y, m, d] = String(profile.first_shop_date).split("-").map(Number);
+    const then = new Date(y, m - 1, d); then.setHours(0, 0, 0, 0);
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    return Math.round((then - now) / 86400000);
+  })();
+
   useEffect(() => { boot(); }, []);
   useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, busy]);
 
@@ -272,18 +288,20 @@ export default function App() {
   // whatever day you happen to be looking at in the calendar — and remembered
   // per date so it asks once on the Sunday, not every time the app opens.
   useEffect(() => {
+    // Nothing to check against an empty kitchen.
+    if (preFirstShop || !booted) return;
     const now = new Date();
     if (now.getDay() !== 0) return;
     const today = iso(now);
     try { if (localStorage.getItem("hv_pantry_check") === today) return; } catch { return; }
     setPantryCheck(today);
-  }, []);
+  }, [booted, preFirstShop]);
 
   // He shops on Sunday. If it's Tuesday and this week still reads as unbought,
   // either he hasn't been yet or he went and forgot to tap "Groceries done" —
   // and in that second case the pantry is stale, so every list netted against it
   // is wrong and nothing currently notices.
-  const staleShop = booted && !shopCheckOff && todayIndex() >= 2
+  const staleShop = booted && !preFirstShop && !shopCheckOff && todayIndex() >= 2
     && Boolean(weeks[weekStartFor(0)]) && !isShopped(0);
 
   useEffect(() => {
@@ -300,6 +318,11 @@ export default function App() {
     setPantryCheck(null);
     if (goToPantry) setTab("pantry");
   }
+
+  /** "Logged" and "log cleared" said nothing about what changed. Every entry in
+   *  Changes names the day, the slot and the outcome so it reads as a sentence. */
+  const dayName = (offset, dIdx) => dateForDay(offset, dIdx).toLocaleDateString("en-GB", { weekday: "long" });
+  const slotOf = (meal) => meal.slot.toLowerCase();
 
   /** Hand the chat an editable starting line rather than firing a swap blind. */
   function replaceMeal(meal) {
@@ -506,7 +529,10 @@ export default function App() {
       await settlePantry(meal, prev?.status === "eaten", status === "eaten");
     } catch {}
     // Clearing a log used to happen with no toast and no undo at all.
-    flash(status ? "Logged" : "Log cleared", () => restoreLog(meal, date, prev, status));
+    flash(status
+      ? `Logged ${dayName(weekOffset, dayIdx)} ${slotOf(meal)}: ${meal.name}, ${Math.round(mac.kcal)} kcal`
+      : `Cleared ${dayName(weekOffset, dayIdx)} ${slotOf(meal)} log`,
+      () => restoreLog(meal, date, prev, status));
   }
 
   /** Go ahead and log the planned meal over an estimate, after confirming. */
@@ -518,7 +544,8 @@ export default function App() {
       await store.logMeal({ date, slot: meal.slot, status: "eaten", mealName: meal.name, kcal: mac.kcal, protein: mac.protein, carbs: mac.carbs, fat: mac.fat });
       await settlePantry(meal, existing?.status === "eaten", true);
     } catch {}
-    flash("Logged", () => restoreLog(meal, date, existing, "eaten"));
+    flash(`Replaced ${dayName(weekOffset, dayIdx)} ${slotOf(meal)} with the planned meal`,
+      () => restoreLog(meal, date, existing, "eaten"));
   }
 
   async function clearAteOut() {
@@ -528,7 +555,8 @@ export default function App() {
       await store.clearMeal(date, meal.slot);
       await settlePantry(meal, existing?.status === "eaten", false);
     } catch {}
-    flash("Log cleared", () => restoreLog(meal, date, existing, null));
+    flash(`Cleared ${dayName(weekOffset, dayIdx)} ${slotOf(meal)} log`,
+      () => restoreLog(meal, date, existing, null));
   }
 
   async function confirmAteOut(desc) {
@@ -555,7 +583,7 @@ export default function App() {
       setTab("ai");
       await sendMessage(`I ate out for ${meal.slot.toLowerCase()} instead of ${meal.name}. I had: ${text}. Estimate the macros and log it.`);
       pendingLog.current = null;
-    } else flash("Logged as eaten out");
+    } else flash(`Logged ${dayName(weekOffset, dayIdx)} ${slotOf(meal)} as eaten out`);
   }
 
   /* ------- pantry ------- */
@@ -576,7 +604,8 @@ export default function App() {
     const next = on ? [...haveEnough, id] : haveEnough.filter((x) => x !== id);
     setHaveEnough(next);
     try { await store.setHaveEnough(id, on); } catch {}
-    flash(on ? "Taken off the list" : "Back on the list", () => {
+    const itemName = allIngredients.find((x) => x.id === id)?.name || id;
+    flash(on ? `Took ${itemName.toLowerCase()} off the list` : `Put ${itemName.toLowerCase()} back on the list`, () => {
       // Functional update — closing over `haveEnough` meant undoing after two
       // toggles restored a stale list and silently dropped the other change.
       setHaveEnough((prev) => (on ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -585,8 +614,16 @@ export default function App() {
   }
 
   async function groceriesDone() {
+    // A double-tap on a phone stocked the pantry twice and wrote two shop rows.
+    if (shopping.current) return;
     const picked = grocery.items.filter((i) => checked[i.id]);
     if (!picked.length) return flash("Nothing ticked yet");
+    shopping.current = true;
+    setConfirmShop(null);
+    try { await doGroceriesDone(picked); } finally { shopping.current = false; }
+  }
+
+  async function doGroceriesDone(picked) {
     // Snapshot before stocking so undo can restore quantities, not wipe rows.
     const priorStock = pantry.map((p) => ({ ...p }));
     try {
@@ -607,7 +644,7 @@ export default function App() {
     // ensureShopPlan builds the plan if there isn't one, and it's the only path
     // that does, so the two can't both generate for the same week.
     setShopOffset(Math.min(1, shopOffset + 1));
-    flash(`${picked.length} items added to your pantry`, async () => {
+    flash(`Shopped ${picked.length} item${picked.length === 1 ? "" : "s"} into the pantry`, async () => {
       // The shop is undone in full: the week stops counting as bought, and the
       // Shop tab goes back to it rather than stranding you on next week.
       try { await store.unmarkWeekShopped(shopKey); await loadShopped(); } catch {}
@@ -708,8 +745,9 @@ export default function App() {
       await applyPlan(picked.week);
       const note = picked.cost > cap ? ` — £${picked.cost.toFixed(2)}, over your £${cap} cap`
         : picked.moved ? " — other meals adjusted to stay in budget" : "";
+      const full = DAYS_LONG[di] || a.day;
       // Undo used to restore React state only, leaving the swap in the database.
-      flash(`${a.day} ${a.slot} updated${note}`, () => applyPlan(before));
+      flash(`Swapped ${full} ${String(a.slot).toLowerCase()} to ${picked.tpl.name}${note}`, () => applyPlan(before));
       return;
     }
     if (a.type === "add_grocery") { try { await store.addCustomItem(a.name, a.quantity || ""); setCustom(await store.getCustomItems()); flash(`Added ${a.name}`); } catch {} return; }
@@ -757,7 +795,7 @@ export default function App() {
       const row = { log_date: date, slot, status: "ate_out", meal_name: a.description || "ate out", kcal: +a.kcal || 0, protein: +a.protein || 0, carbs: +a.carbs || 0, fat: +a.fat || 0 };
       setLogs((p) => ({ ...p, [`${date}|${row.slot}`]: row }));
       try { await store.logMeal({ date, slot: row.slot, status: "ate_out", mealName: row.meal_name, kcal: row.kcal, protein: row.protein, carbs: row.carbs, fat: row.fat, note: a.description }); } catch {}
-      flash(`Logged ${row.kcal} kcal`);
+      flash(`Logged ${(DAYS_LONG[DAYS.indexOf(DAYS[di >= 0 ? di : todayIndex()])] || "today")} ${String(slot).toLowerCase()} out: ${row.meal_name}, ${row.kcal} kcal`);
     }
   }
 
@@ -816,6 +854,14 @@ export default function App() {
         </Modal>
       )}
 
+      {confirmShop !== null && (
+        <Modal onClose={() => setConfirmShop(null)} title={`Stock the pantry with ${confirmShop} item${confirmShop === 1 ? "" : "s"}?`}
+          body="This records the shop for real: what you ticked goes into your kitchen, the week is marked bought, and the next list starts. There was no confirmation here before, which made it easy to do by accident.">
+          <Btn kind="good" size="lg" style={{ flex: 1 }} onClick={groceriesDone}>Yes, I bought these</Btn>
+          <Btn size="lg" onClick={() => setConfirmShop(null)}>Cancel</Btn>
+        </Modal>
+      )}
+
       {pantryCheck && (
         <Modal onClose={() => dismissPantryCheck(false)} title="Shop day — quick pantry check?"
           body="Run through what actually survived the week before you shop. Anything you've run out of, or still have plenty of, changes the list.">
@@ -862,35 +908,6 @@ export default function App() {
             {targets.targetKcal} kcal · {targets.protein}g protein · £{profile.budget_cap || 65}/wk
           </div>
         </header>
-
-        {/* Recent changes, on every tab where something undoable happens —
-            replacing a meal is a Plan-tab action, so it belongs here too. The
-            arrows browse; Undo rewinds to wherever they're parked. */}
-        {undoStack.length > 0 && ["groceries", "pantry", "plan"].includes(tab) && (
-          <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "10px 12px 12px", marginBottom: 14 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".1em" }}>Changes</span>
-              {undoStack.length > 1 && (
-                <span style={{ fontSize: 11.5, color: t.dim, fontFamily: "'JetBrains Mono',monospace" }}>{undoIdx + 1} of {undoStack.length}</span>
-              )}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              {/* ← steps to older changes, → back towards the newest. */}
-              <button onClick={() => setUndoIdx((i) => Math.min(undoStack.length - 1, i + 1))}
-                disabled={undoIdx >= undoStack.length - 1}
-                style={{ background: "none", border: "none", color: undoIdx >= undoStack.length - 1 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx >= undoStack.length - 1 ? .35 : 1 }}>‹</button>
-              <span style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {undoStack[undoIdx]?.msg}
-              </span>
-              <button onClick={() => setUndoIdx((i) => Math.max(0, i - 1))}
-                disabled={undoIdx === 0}
-                style={{ background: "none", border: "none", color: undoIdx === 0 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx === 0 ? .35 : 1 }}>›</button>
-            </div>
-            <Btn size="sm" kind="solid" style={{ width: "100%", marginTop: 9 }} onClick={() => rewind(undoIdx)}>
-              {undoIdx === 0 ? "Undo" : `Undo last ${undoIdx + 1} changes`}
-            </Btn>
-          </div>
-        )}
 
         {/* ---------- PLAN ---------- */}
         {tab === "plan" && (
@@ -982,13 +999,26 @@ export default function App() {
                 you're looking at is never in doubt. Browsing here changes which
                 week's data you see; it never changes what the app thinks the
                 date is — that comes from weekStartFor(0) inside shopView. */}
+            {preFirstShop && (
+              <div style={{ background: "rgba(124,156,255,.08)", border: `1px solid rgba(124,156,255,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 12 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Your first shop</div>
+                <div style={{ fontSize: 13, color: t.soft, lineHeight: 1.5 }}>
+                  {firstShopIn === null ? "Nothing bought yet, so the kitchen starts empty and this is the full list."
+                    : firstShopIn > 1 ? `In ${firstShopIn} days, on ${new Date(profile.first_shop_date + "T12:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}. Nothing to do until then — the kitchen is empty, so this is the full list.`
+                    : firstShopIn === 1 ? "Tomorrow. The kitchen is empty, so this is the full list."
+                    : firstShopIn === 0 ? "Today. Tick things off as you go, then tap Groceries done."
+                    : `Was due ${-firstShopIn} day${firstShopIn === -1 ? "" : "s"} ago. Tap Groceries done once you've been.`}
+                </div>
+              </div>
+            )}
+
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 14, background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: 6 }}>
               <Btn size="sm" kind="ghost" style={{ border: "none", opacity: shopOffset <= -8 ? .3 : 1 }}
                 onClick={() => { if (shopOffset > -8) { setShopOffset(shopOffset - 1); setChecked({}); } }}>←</Btn>
               <div style={{ textAlign: "center", flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 700 }}>{view.label}</div>
                 <div style={{ fontSize: 11.5, color: view.bought ? t.teal : t.dim }}>
-                  {view.status}{view.readOnly ? " · history" : ""}
+                  {preFirstShop && !view.readOnly ? "Not shopped yet" : view.status}{view.readOnly ? " · history" : ""}
                 </div>
               </div>
               <Btn size="sm" kind="ghost" style={{ border: "none", opacity: shopOffset >= 8 ? .3 : 1 }}
@@ -1034,7 +1064,8 @@ export default function App() {
                   onClick={() => setChecked(allTicked ? {} : Object.fromEntries(grocery.items.map((i) => [i.id, true])))}>
                   {allTicked ? "Clear all" : "Select all"}
                 </Btn>
-                <Btn kind="good" size="md" style={{ flex: 1.4 }} onClick={groceriesDone}>Groceries done →</Btn>
+                <Btn kind="good" size="md" style={{ flex: 1.4 }}
+                  onClick={() => setConfirmShop(grocery.items.filter((i) => checked[i.id]).length)}>Groceries done →</Btn>
               </div>
             )}
 
@@ -1186,12 +1217,46 @@ export default function App() {
               <Field label="Training days per week" type="number" value={profile.training_days} onSave={(v) => saveField("training_days", +v)} />
               <Field label="Goal" type="select" value={profile.goal} options={[["maintain", "Maintain"], ["recomp", "Recomp (slow)"], ["mild_cut", "Lean down (gentle)"], ["cut", "Cut (aggressive)"]]} onSave={(v) => saveField("goal", v)} />
               <Field label="Weekly budget (£)" type="number" value={profile.budget_cap} onSave={(v) => saveField("budget_cap", +v)} />
+              {/* A native date input: 88px of monospace text entry is not a way to
+                  type a date on a phone. */}
+              <Field label="First shop" type="date" value={profile.first_shop_date || ""} onSave={(v) => saveField("first_shop_date", v || null)} />
               <Field label="Max cook time (min)" type="number" value={profile.max_cook_minutes} onSave={(v) => saveField("max_cook_minutes", +v)} />
             </Section>
 
             <Section title="What you're going for" note="Describe it however you like — the AI reads this when planning.">
               <TextBox value={profile.goal_notes || ""} placeholder="e.g. lean and athletic, V-taper, want to lose the last bit of belly and face fat while keeping my lifts going"
                 onSave={(v) => saveField("goal_notes", v)} />
+            </Section>
+
+            <Section title="Recent changes" note="Step back through what you've changed, and undo to any point.">
+                {/* Lives in Settings only: it was competing for space at the top of
+                    three tabs he uses constantly. The arrows browse; Undo rewinds to
+                    wherever they're parked. */}
+                {undoStack.length > 0 && (
+              <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "10px 12px 12px", marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".1em" }}>Changes</span>
+                  {undoStack.length > 1 && (
+                    <span style={{ fontSize: 11.5, color: t.dim, fontFamily: "'JetBrains Mono',monospace" }}>{undoIdx + 1} of {undoStack.length}</span>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {/* ← steps to older changes, → back towards the newest. */}
+                  <button onClick={() => setUndoIdx((i) => Math.min(undoStack.length - 1, i + 1))}
+                    disabled={undoIdx >= undoStack.length - 1}
+                    style={{ background: "none", border: "none", color: undoIdx >= undoStack.length - 1 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx >= undoStack.length - 1 ? .35 : 1 }}>‹</button>
+                  <span style={{ flex: 1, minWidth: 0, textAlign: "center", fontSize: 13.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {undoStack[undoIdx]?.msg}
+                  </span>
+                  <button onClick={() => setUndoIdx((i) => Math.max(0, i - 1))}
+                    disabled={undoIdx === 0}
+                    style={{ background: "none", border: "none", color: undoIdx === 0 ? t.dim : t.text, fontSize: 19, padding: "2px 8px", opacity: undoIdx === 0 ? .35 : 1 }}>›</button>
+                </div>
+                <Btn size="sm" kind="solid" style={{ width: "100%", marginTop: 9 }} onClick={() => rewind(undoIdx)}>
+                  {undoIdx === 0 ? "Undo" : `Undo last ${undoIdx + 1} changes`}
+                </Btn>
+              </div>
+            )}
             </Section>
 
             <Section title="Won't eat" note="Never planned. Add anything you don't want to see.">
@@ -1298,8 +1363,10 @@ function Field({ label, value, type = "text", options, onSave }) {
           {options.map(([val, lab]) => <option key={val} value={val}>{lab}</option>)}
         </select>
       ) : (
-        <input type={type} value={v} onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
-          style={{ width: 88, background: t.cardHi, color: t.text, border: `1px solid ${t.line}`, borderRadius: 10, padding: "9px 11px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace" }} />
+        <input type={type} value={v}
+          onChange={(e) => { setV(e.target.value); if (type === "date") onSave(e.target.value); }}
+          onBlur={commit} onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
+          style={{ width: type === "date" ? 160 : 88, background: t.cardHi, color: t.text, border: `1px solid ${t.line}`, borderRadius: 10, padding: "9px 11px", textAlign: "right", fontFamily: "'JetBrains Mono',monospace" }} />
       )}
     </div>
   );
