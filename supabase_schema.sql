@@ -171,3 +171,10 @@ update weeks
 set status = 'archived'
 where status <> 'archived'
   and extract(dow from week_start) <> 0;   -- 0 = Sunday
+
+-- ============ v5: first shop ============
+-- Before the first shop there is no anchor and no active week: the kitchen is
+-- empty by definition, so nothing can have run out and there is nothing to
+-- reconcile. This holds the date he expects to shop, purely so the app can say
+-- "your first shop is in X days" instead of sitting there looking confused.
+alter table profile add column if not exists first_shop_date date;
