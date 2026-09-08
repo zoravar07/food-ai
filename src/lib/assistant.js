@@ -4,6 +4,7 @@
 // actions (like a meal swap) the app can actually execute.
 
 import { kitchenAmount } from "./foodDatabase.js";
+import { supabase } from "./store.js";
 
 
 /** Who the assistant is talking to, built from the profile rather than baked in.
@@ -170,9 +171,19 @@ ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- 
 
   const systemPrompt = `${userContext(context.profile, context.targets)}\n\n${contextBlock}\n\n${ACTION_INSTRUCTIONS}`;
 
+  // The endpoint requires a live session — read the token at call time rather
+  // than holding one, so a refreshed session is always the one that's sent.
+  let token = null;
+  if (supabase) {
+    try { token = (await supabase.auth.getSession()).data?.session?.access_token || null; } catch {}
+  }
+
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify({ systemPrompt, messages }),
   });
 
