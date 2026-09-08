@@ -11,7 +11,14 @@ import { generateWeek, excludeDisliked, interpretRules, templates, usablePins, t
 import { buildGroceryList } from "./src/lib/groceryListGenerator.js";
 import { allIngredients, purchaseUnits } from "./src/lib/foodDatabase.js";
 import { shopView } from "./src/lib/shopView.js";
-import { DAYS } from "./src/lib/weeks.js";
+import { daysFrom } from "./src/lib/weeks.js";
+
+// The week starts on the day he last shopped, so the day order rotates. Run the
+// whole matrix against a shop day, not just a Sunday one: ANCHOR=2026-09-22
+// gives a Tuesday-start week. A standing rule on a Friday must still land once
+// however the week is rotated.
+const ANCHOR = process.env.ANCHOR || "2026-09-06";
+const DAYS = daysFrom(ANCHOR);
 
 const tg = calculateTargets({ age:19, height_cm:185, weight_kg:72.5, sex:"male", training_days:5, goal:"mild_cut" });
 const CAP = 65;
@@ -21,7 +28,7 @@ const N = Number(process.argv[2] || 150);
 
 const fails = {}; const bad = (k, d) => { (fails[k] ||= []).push(d); };
 const raw = interpretRules(RULES);
-const base = { ...raw, blocked: excludeDisliked(DISLIKES) };
+const base = { ...raw, blocked: excludeDisliked(DISLIKES), days: DAYS };
 // A pin colliding with a dislike is meant to be dropped, so it is not expected to hold.
 const livePins = usablePins(base.pins, base.blocked);
 const allBlocked = new Set(Object.values(base.blocked).flat());
@@ -53,6 +60,9 @@ function checkWeek(w, label, pins) {
   // a win — CLAUDE.md is explicit that plans must not be bland or repetitive.
   // This went unchecked once and a budget fix quietly collapsed every plan with a
   // standing rule to 2 distinct dinners out of 7.
+  // the generated week must actually use the rotated day order
+  const gotDays = w.map((d) => d.day).join(" ");
+  if (gotDays !== DAYS.join(" ")) bad(`${label}: WRONG DAY ORDER`, gotDays);
   for (const [slot, floor] of [["Dinner", 3], ["Lunch", 3], ["Breakfast", 3]]) {
     const distinct = new Set(w.map((d) => d.meals.find((m) => m.slot === slot)?.id)).size;
     if (distinct < floor) bad(`${label}: MONOTONOUS ${slot.toLowerCase()}s`, `${distinct} distinct in 7 days`);
@@ -151,6 +161,7 @@ for (let i = 0; i < N; i++) {
   }
 }
 
+console.log(`anchor ${ANCHOR} -> week runs ${DAYS.join(" ")}`);
 console.log(`pins requested: ${JSON.stringify(base.pins)} | still enforceable after dislikes: ${JSON.stringify(livePins)}`);
 console.log(`blocked templates: ${[...allBlocked].join(", ") || "(none)"} | truly disliked: ${[...badIds].join(", ")}`);
 console.log(`swaps applied ${swaps}, no-ops ${noops}, pinned-day swaps honoured ${pinnedSwaps}`);

@@ -13,9 +13,9 @@ export const supabase = isConfigured ? createClient(url, key) : null;
 // In-memory fallback so the UI works before Supabase is wired up
 const memory = { weeks: [], logs: [], shops: [], pantry: [], custom: [], supplements: [], staples: [], haveEnough: [], rules: [], profile: null };
 
-// Weeks run Sunday to Saturday; weeks.js owns that definition.
-import { weekStartOf, iso } from "./weeks.js";
-export const currentWeekStart = (date = new Date()) => iso(weekStartOf(date));
+// Weeks start on the day of the last shop; weeks.js owns that definition and
+// App resolves the anchor. Nothing in the store needs to know it.
+import { iso } from "./weeks.js";
 
 // ---------- Profile (editable settings) ----------
 export const DEFAULT_PROFILE = {
@@ -162,19 +162,29 @@ export async function getShoppedWeeks(limit = 20) {
 /** Undo of "Groceries done" — the shop didn't happen after all. Without this the
  *  pantry was restored but the week stayed marked bought, so the Shop tab moved
  *  on to next week and the list you'd just un-bought was unreachable. */
-export async function unmarkWeekShopped(weekStart) {
+export async function unmarkWeekShopped(shopDate, restoreKey) {
+  // The shop is undone in full, including the re-key: the plan goes back to the
+  // week it was generated for, so the anchor falls back to the shop before it.
   if (!supabase) {
-    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart && w.status === "active" ? { ...w, status: "draft", shopped_at: null } : w));
+    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === shopDate && w.status === "active"
+      ? { ...w, week_start: restoreKey || w.week_start, status: "draft", shopped_at: null } : w));
     return;
   }
   if (!(await statusAvailable())) return;
-  await supabase.from("weeks").update({ status: "draft", shopped_at: null }).eq("week_start", weekStart).eq("status", "active");
+  const patch = { status: "draft", shopped_at: null };
+  if (restoreKey) patch.week_start = restoreKey;
+  await supabase.from("weeks").update(patch).eq("week_start", shopDate).eq("status", "active");
 }
 
-/** "Groceries done" — this week's plan is now the one being eaten from. */
-export async function markWeekShopped(weekStart) {
+/** "Groceries done" — this plan is now the one being eaten from, and the week
+ *  starts today because today is when he shopped. Re-keying to the shop date is
+ *  what makes the cycle follow him instead of a weekday: the plan stays
+ *  reachable at week_start, and week_start is the anchor. */
+export async function markWeekShopped(weekStart, shopDate) {
+  const when = shopDate || new Date().toISOString().slice(0, 10);
   if (!supabase) {
-    memory.weeks = (memory.weeks || []).map((w) => (w.week_start === weekStart ? { ...w, status: "active", shopped_at: new Date().toISOString() } : w));
+    memory.weeks = (memory.weeks || []).map((w) =>
+      w.week_start === weekStart ? { ...w, week_start: when, status: "active", shopped_at: new Date().toISOString() } : w);
     return;
   }
   if (!(await statusAvailable())) return;
@@ -182,7 +192,9 @@ export async function markWeekShopped(weekStart) {
   if (!current?.id) return;
   // Older plans for the same week step aside so only one is ever the live one.
   await supabase.from("weeks").update({ status: "archived" }).eq("week_start", weekStart).neq("id", current.id);
-  await supabase.from("weeks").update({ status: "active", shopped_at: new Date().toISOString() }).eq("id", current.id);
+  await supabase.from("weeks")
+    .update({ week_start: when, status: "active", shopped_at: new Date().toISOString() })
+    .eq("id", current.id);
 }
 
 /** Edit the live plan for a week in place — a swapped meal refines the plan
