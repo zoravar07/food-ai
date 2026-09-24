@@ -69,11 +69,18 @@ function costOf(id, grams, packs) {
 
 export function buildGroceryList(week, leftovers = {}, haveEnough = []) {
   const totals = {};
+  // What each ingredient is actually for, gathered in the same pass that adds
+  // up the quantities. The list could already say how much chicken to buy but
+  // not why, so deciding whether to skip a row meant going back to the plan and
+  // reading seven days of meals. Day order follows the week, which is already
+  // in shop order.
+  const usedIn = {};
   week.forEach((day) => {
     day.meals.forEach((meal) => {
       (meal.items || []).forEach(([id, qty]) => {
         if (id === "whey") return;
         totals[id] = (totals[id] || 0) + qty;
+        (usedIn[id] ||= []).push({ day: day.day, slot: meal.slot, meal: meal.name, qty });
       });
     });
   });
@@ -96,6 +103,7 @@ export function buildGroceryList(week, leftovers = {}, haveEnough = []) {
       neededThisWeek: Math.round(rawQty),
       alreadyOwned: owned,
       estCost: Math.round(costOf(id, purchase.buyGrams, purchase.packs) * 100) / 100,
+      usedIn: usedIn[id] || [],
       aisle: aisleFor(id),
       longLife: Boolean(purchaseUnits[id]?.bulk),
       storage: ing.storageDays,
