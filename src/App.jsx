@@ -67,12 +67,12 @@ function RecipePage({ meal, onBack }) {
   const mac = analyseDay([meal], allIngredients);
   return (
     <div style={{ position: "fixed", inset: 0, background: t.bg, zIndex: 200, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
-      <div style={{ position: "sticky", top: 0, background: t.bg, borderBottom: `1px solid ${t.line}`, padding: "14px 18px", display: "flex", alignItems: "center", gap: 12, zIndex: 2 }}>
+      <div style={{ position: "sticky", top: 0, background: t.bg, borderBottom: `1px solid ${t.line}`, padding: "14px 18px", paddingTop: "calc(env(safe-area-inset-top) + 14px)", display: "flex", alignItems: "center", gap: 12, zIndex: 2 }}>
         <Btn onClick={onBack} kind="solid" size="sm" style={{ borderRadius: 10 }}>← Back</Btn>
         <span style={{ fontSize: 13, color: t.soft, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".06em" }}>{meal.slot}</span>
       </div>
 
-      <div style={{ padding: "22px 18px 60px", maxWidth: 780, margin: "0 auto" }}>
+      <div style={{ padding: "22px 18px 60px", paddingBottom: "calc(env(safe-area-inset-bottom) + 60px)", maxWidth: 780, margin: "0 auto" }}>
         <h1 style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", margin: "0 0 6px", lineHeight: 1.2 }}>{meal.name}</h1>
         <div style={{ fontSize: 14, color: t.soft, marginBottom: 18 }}>{meal.time} minutes</div>
         {r?.blurb && <p style={{ fontSize: 16, lineHeight: 1.6, margin: "0 0 22px" }}>{r.blurb}</p>}
@@ -878,7 +878,7 @@ function App({ session }) {
         @media(min-width:900px){.wrap{max-width:860px;margin:0 auto}}`}</style>
 
       {toast && (
-        <div style={{ position: "fixed", top: 12, left: 12, right: 12, zIndex: 300, display: "flex", justifyContent: "center" }}>
+        <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 12px)", left: 12, right: 12, zIndex: 300, display: "flex", justifyContent: "center" }}>
           <div style={{ background: t.cardHi, border: `1px solid ${t.line}`, color: t.text, padding: "11px 16px", borderRadius: 14, fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 14, boxShadow: "0 8px 24px rgba(0,0,0,.4)" }}>
             {toast.msg}
             {toast.undo && <button onClick={runUndo}
@@ -1394,7 +1394,7 @@ function App({ session }) {
 /* ---------------- small components ---------------- */
 function Modal({ title, body, children, onClose }) {
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.75)", zIndex: 250, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: 16 }}>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.75)", zIndex: 250, display: "flex", alignItems: "flex-end", justifyContent: "center", padding: "calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 16px)" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: t.panel, border: `1px solid ${t.line}`, borderRadius: 20, padding: 24, width: "100%", maxWidth: 440, marginBottom: 8 }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 19, fontWeight: 700 }}>{title}</h3>
         {body && <p style={{ fontSize: 14.5, color: t.soft, margin: "0 0 20px", lineHeight: 1.55 }}>{body}</p>}
@@ -1510,7 +1510,7 @@ function SignIn() {
 
   const field = { width: "100%", padding: "13px 14px", borderRadius: 12, background: t.card, border: `1px solid ${t.line}`, color: t.text, marginBottom: 10 };
   return (
-    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px 18px" }}>
+    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(env(safe-area-inset-top) + 24px) 18px calc(env(safe-area-inset-bottom) + 24px)" }}>
       <form onSubmit={go} style={{ width: "100%", maxWidth: 340 }}>
         <h1 style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.03em", margin: "0 0 4px" }}>hungryvar</h1>
         <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 22px", lineHeight: 1.5 }}>
