@@ -1144,7 +1144,8 @@ function App({ session }) {
                             <span style={{ color: t.peri, fontFamily: "'JetBrains Mono',monospace", marginRight: 7 }}>{it.display}</span>{it.name}
                           </div>
                           <div style={{ fontSize: 12, color: t.dim, marginTop: 2 }}>
-                            £{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}{it.guide ? " · tap for how to pick" : ""}
+                            £{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}
+                            {it.usedIn?.length ? ` · for ${it.usedIn.length} meal${it.usedIn.length === 1 ? "" : "s"}` : ""}
                           </div>
                         </div>
                         {/* This lived inside the how-to-pick panel, so it only
@@ -1157,12 +1158,34 @@ function App({ session }) {
                           </Btn>
                         )}
                       </div>
-                      {guide[it.id] && it.guide && (
+                      {guide[it.id] && (it.usedIn?.length > 0 || it.guide) && (
                         <div style={{ padding: "12px 14px 14px 52px", borderTop: `1px solid ${t.line}` }}>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: t.teal, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Go for</div>
-                          <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 10 }}>{it.guide.pick}</div>
-                          <div style={{ fontSize: 10.5, fontWeight: 700, color: t.coral, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Avoid</div>
-                          <div style={{ fontSize: 14, lineHeight: 1.55 }}>{it.guide.avoid}</div>
+                          {it.usedIn?.length > 0 && (
+                            <>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: t.peri, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>What it's for</div>
+                              <div style={{ marginBottom: it.guide ? 14 : 0 }}>
+                                {it.usedIn.map((u, i) => (
+                                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "4px 0" }}>
+                                    <div style={{ fontSize: 14, lineHeight: 1.45, minWidth: 0 }}>
+                                      <span style={{ color: t.soft, fontWeight: 600 }}>{u.day} {u.slot.toLowerCase()}</span>
+                                      <span style={{ color: t.dim }}> · </span>{u.meal}
+                                    </div>
+                                    {/* Grams mean nothing at the shelf; this is the
+                                        same kitchen wording the recipe uses. */}
+                                    <span style={{ fontSize: 12.5, color: t.dim, fontFamily: "'JetBrains Mono',monospace", flexShrink: 0 }}>{kitchenAmount(it.id, u.qty)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                          {it.guide && (
+                            <>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: t.teal, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Go for</div>
+                              <div style={{ fontSize: 14, lineHeight: 1.55, marginBottom: 10 }}>{it.guide.pick}</div>
+                              <div style={{ fontSize: 10.5, fontWeight: 700, color: t.coral, textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Avoid</div>
+                              <div style={{ fontSize: 14, lineHeight: 1.55 }}>{it.guide.avoid}</div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
