@@ -39,10 +39,18 @@ async function userFor(req) {
   }
 }
 
-const MODELS = {
-  primary: "gemini-3.1-flash-lite",
-  fallback: "gemini-3.6-flash", // used automatically if primary is rate-limited
-};
+// Tried in order until one answers. flash-lite is the cheaper model and was
+// first here, but it has answered 503 to every request for as long as anyone
+// has looked, and a dead model at the head of the list costs a doomed round
+// trip on every message. It stays in the chain in case it comes back.
+const MODELS = ["gemini-3.6-flash", "gemini-3.1-flash-lite"];
+
+// Statuses where the next model is worth a try: the request itself is fine,
+// this particular model just cannot serve it right now. 429 is a rate limit,
+// 404 means retired or renamed, and the 5xx range is an outage on Google's
+// side. 503 ("this model is currently experiencing high demand") is what took
+// the assistant down, and it was the one status the old fallback missed.
+const TRY_NEXT = new Set([404, 429, 500, 502, 503, 504]);
 
 async function callGemini(model, systemPrompt, messages) {
   const key = process.env.GEMINI_API_KEY;
@@ -66,20 +74,12 @@ async function callGemini(model, systemPrompt, messages) {
     }
   );
 
-  if (res.status === 429) {
-    const err = new Error("rate_limited");
-    err.rateLimited = true;
-    throw err;
-  }
-  // 404 means the model was retired or renamed — fall back instead of failing.
-  if (res.status === 404) {
-    const err = new Error("model_unavailable");
-    err.shouldFallback = true;
-    throw err;
-  }
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Gemini ${res.status}: ${body.slice(0, 300)}`);
+    const err = new Error(`${model} returned ${res.status}: ${body.replace(/\s+/g, " ").slice(0, 200)}`);
+    err.status = res.status;
+    err.tryNext = TRY_NEXT.has(res.status);
+    throw err;
   }
 
   const data = await res.json();
@@ -105,15 +105,29 @@ export default async function handler(req, res) {
     }
 
     let text;
-    try {
-      text = await callGemini(MODELS.primary, systemPrompt || "", messages);
-    } catch (e) {
-      if (e.rateLimited || e.shouldFallback) {
-        // Automatic fallback to the higher-quota model rather than failing
-        text = await callGemini(MODELS.fallback, systemPrompt || "", messages);
-      } else {
-        throw e;
+    const failures = [];
+    for (const model of MODELS) {
+      try {
+        text = await callGemini(model, systemPrompt || "", messages);
+        break;
+      } catch (e) {
+        failures.push(e.message);
+        // A missing key or a malformed request fails identically on every
+        // model, so working through the list would only waste the round trips.
+        if (!e.tryNext) throw e;
       }
+    }
+
+    // Worth a log line either way: a silent fallback still means the primary
+    // model is unhealthy, and that is the thing worth noticing early.
+    if (failures.length) console.warn(`chat: ${failures.join(" | ")}`);
+
+    if (text === undefined) {
+      // Every model was unavailable. Raw provider JSON in a chat bubble tells
+      // him nothing he can act on, so say what happened in plain words.
+      return res.status(503).json({
+        error: "the AI provider is down right now — try again in a minute",
+      });
     }
 
     return res.status(200).json({ text });
