@@ -8,9 +8,41 @@ const url = import.meta.env.VITE_SUPABASE_URL;
 const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const isConfigured = Boolean(url && key);
+
+/** The auth library deletes the saved session whenever a token refresh gets an
+ *  error response it doesn't recognise as an outage. A paused project answers
+ *  540, which isn't on its outage list, so opening the app while the database
+ *  slept signed him out for good. Any 5xx, 408 or 429 from the auth server is
+ *  now thrown as a network failure instead: the session stays saved and the
+ *  refresh is tried again. Only a real "this refresh token is invalid" (a 4xx
+ *  with an answer) can still end a session. */
+function authFetch(input, init) {
+  return fetch(input, init).then((res) => {
+    const u = typeof input === "string" ? input : input?.url || "";
+    if (u.includes("/auth/v1/") && (res.status >= 500 || res.status === 408 || res.status === 429)) {
+      throw new TypeError(`the database isn't answering (${res.status})`);
+    }
+    return res;
+  });
+}
+
 export const supabase = isConfigured
-  ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true } })
+  ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: authFetch } })
   : null;
+
+/** Whether this device still holds a session, whatever the server says right
+ *  now. A failed refresh on launch (no signal, a slow first request) makes
+ *  getSession() return null while the session is still saved, and that null
+ *  used to put the sign-in screen up. */
+export function hasSavedSession() {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (/^sb-.+-auth-token$/.test(k) && (localStorage.getItem(k) || "").includes("refresh_token")) return true;
+    }
+  } catch {}
+  return false;
+}
 
 // ---------- Auth ----------
 // Every table now carries user_id with `default auth.uid()`, and RLS filters
@@ -199,6 +231,11 @@ async function statusAvailable() {
   if (hasStatus !== null) return hasStatus;
   if (!supabase) { hasStatus = true; return true; }
   const { error } = await supabase.from("weeks").select("status").limit(1);
+  // Only a missing column means "old schema". Any other failure (no signal,
+  // an expired token, the database waking up) used to be cached as false for
+  // the rest of the session, so one bad first request made the app forget
+  // every shop and open on "Your first week" with the wrong dates.
+  if (error && !/status|42703|PGRST204/i.test(`${error.code} ${error.message}`)) throw error;
   hasStatus = !error;
   if (!hasStatus) console.warn("weeks.status missing — run the v3 block in supabase_schema.sql");
   return hasStatus;
@@ -215,7 +252,9 @@ export async function getShoppedWeeks(limit = 20) {
   const { data, error } = await supabase
     .from("weeks").select("week_start, shopped_at").eq("status", "active")
     .order("week_start", { ascending: false }).limit(limit);
-  if (error) return [];
+  // Thrown, not swallowed: an empty list here reads as "never shopped", which
+  // moves the whole week calendar.
+  if (error) throw error;
   return data || [];
 }
 

@@ -9,7 +9,7 @@
 // Offline is the fallback, never the preference: every strategy here tries the
 // network first and only reaches for the cache when that fails.
 
-const VERSION = "hv-3";
+const VERSION = "hv-4";
 const SHELL = `${VERSION}-shell`;   // index.html
 const ASSETS = `${VERSION}-assets`; // hashed js/css, icons, manifest
 const DATA = `${VERSION}-data`;     // Supabase reads, so the plan opens offline
@@ -57,9 +57,19 @@ self.addEventListener("fetch", (e) => {
   // The chat function must always be live; a cached answer is worse than none.
   if (url.pathname.startsWith("/api/")) return;
 
-  // Navigations: network first, so a deploy is picked up on the next launch.
+  // Navigations: network first, so a deploy is picked up on the next launch,
+  // but only for a few seconds. With no time limit a weak signal left the app
+  // on a blank screen until the request gave up, which on a phone can be a
+  // minute. After 4s the saved page is used and the fresh one still lands in
+  // the cache for next time.
   if (request.mode === "navigate") {
-    e.respondWith(networkFirst(request, SHELL).catch(() => caches.match("/")));
+    e.respondWith((async () => {
+      const net = networkFirst(request, SHELL);
+      const slow = new Promise((r) => setTimeout(r, 4000)).then(() => caches.match("/"));
+      const first = await Promise.race([net.catch(() => null), slow]);
+      if (first) return first;
+      return (await net.catch(() => null)) || (await caches.match("/")) || Response.error();
+    })());
     return;
   }
 
