@@ -3,7 +3,8 @@
 // plan, pantry and goals so it can answer usefully — and return structured
 // actions (like a meal swap) the app can actually execute.
 
-import { kitchenAmount } from "./foodDatabase.js";
+import { kitchenAmount, allIngredients } from "./foodDatabase.js";
+import { templates } from "./mealPlanner.js";
 import { supabase } from "./store.js";
 
 
@@ -65,6 +66,13 @@ HOW TO RESPOND:
  * If the model wants the app to DO something (swap a meal, add to list),
  * it returns a JSON block. We parse it out and hand it back as an action.
  */
+// Read from the planner, never typed out: a hand-kept list went stale every
+// time the meal library changed, and set_meal with a retired id does nothing.
+const MEAL_IDS = ["breakfast", "lunch", "snack", "dinner"]
+  .map((slot) => `${slot.toUpperCase()}: ${(templates[slot] || []).map((t) => t.id).join(", ")}`).join("\n");
+
+const INGREDIENT_IDS = allIngredients.filter((i) => i.id !== "whey").map((i) => i.id).join(", ");
+
 const ACTION_INSTRUCTIONS = `
 You can CHANGE the app, not just talk about it. When the user asks for a change,
 write your short conversational reply first, then add an action block at the very end:
@@ -104,14 +112,8 @@ Available actions:
 Valid day values: the days listed under CURRENT STATE, and only those
 Valid slot values: Breakfast Lunch Snack Dinner
 Valid templateId values (use these exact ids for set_meal):
-BREAKFAST: greek_bowl, yoghurt_parfait, protein_smoothie, berry_smoothie, scrambled_eggs, fried_eggs_avo, omelette
-LUNCH: shawarma_bowl, teriyaki_bowl, chicken_wrap, quesadilla, egg_fried_rice, mince_pasta, loaded_potato
-SNACK: cucumber_chilli, coconut_banana, yoghurt_snack, banana_pb, cheese_tomato
-DINNER: salmon_greens_rice, beef_tacos, tikka_curry, burgers_wedges, fajita_bowl, chicken_nuggets, chicken_pasta, salmon_pasta, chicken_thigh_traybake
-Valid ingredient ids: chicken_breast, chicken_thigh, salmon, beef_mince_5, eggs, greek_yoghurt, milk,
-coconut_water, cheese, rice, pasta, oats, sourdough, tortilla, sweet_potato, potato, rice_noodles,
-breadcrumbs, peanut_butter_g, olive_oil_g, berries, banana, apple, avocado, cucumber, peppers,
-broccoli, spinach, cherry_tomato, watermelon
+${MEAL_IDS}
+Valid ingredient ids: ${INGREDIENT_IDS}
 
 MID-WEEK CRAVINGS — the most common thing he asks for. Don't just agree; check
 the state above first, then talk it through in a sentence or two:
@@ -178,18 +180,33 @@ ${context.todayLogs?.length ? `Logged today:\n${context.todayLogs.map((l) => `- 
     try { token = (await supabase.auth.getSession()).data?.session?.access_token || null; } catch {}
   }
 
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ systemPrompt, messages }),
-  });
+  // A hung request used to leave "thinking…" up forever. The server gives up
+  // on its whole model chain well before this.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 70000);
+  let res;
+  try {
+    res = await fetch("/api/chat", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ systemPrompt, messages }),
+    });
+  } catch (e) {
+    throw new Error(e?.name === "AbortError"
+      ? "The assistant took too long to answer. Try again in a minute."
+      : "No connection to the assistant. Check your signal; the rest of the app still works.");
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
+    // The server writes these messages for him to read, so pass them through.
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Request failed (${res.status})`);
+    throw new Error(err.error || (res.status === 401 ? "Sign in again to use the assistant." : `The assistant failed (${res.status}).`));
   }
 
   const { text } = await res.json();

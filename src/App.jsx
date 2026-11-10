@@ -206,6 +206,9 @@ function App({ session }) {
   const [chat, setChat] = useState([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // The assistant has its own flag. Sharing `busy` meant a slow or dead
+  // assistant greyed out plan generation and the Shop tab until it gave up.
+  const [thinking, setThinking] = useState(false);
   const [toast, setToast] = useState(null);
   const [confirmNew, setConfirmNew] = useState(false);
   const [ateOut, setAteOut] = useState(null);
@@ -217,6 +220,7 @@ function App({ session }) {
   const [pantryCheck, setPantryCheck] = useState(null);
   const [shopped, setShopped] = useState([]);      // week_starts already shopped for
   const [booted, setBooted] = useState(false);
+  const [bootError, setBootError] = useState(null);
   const [shopCheckOff, setShopCheckOff] = useState(false);
   const [confirmShop, setConfirmShop] = useState(null);
   const chatEnd = useRef(null);
@@ -310,7 +314,7 @@ function App({ session }) {
     if (booted && weekOffset === 0 && sinceShop >= 0 && sinceShop <= 6) setDayIdx(sinceShop);
     /* eslint-disable-next-line */
   }, [booted, anchor]);
-  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, busy]);
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chat, thinking]);
 
   // Shop day. Keyed off the real device date — not dayIdx, which follows
   // whatever day you happen to be looking at in the calendar — and remembered
@@ -359,30 +363,39 @@ function App({ session }) {
   }
 
   async function boot() {
+    setBootError(null);
     try {
-      const p = await store.getProfile();
+      // Profile and shop history first, because together they decide which
+      // dates "this week" covers. This used to read the week before the shop
+      // history had loaded, so it looked under today's date, found nothing,
+      // and generated and saved a fresh plan on almost every launch.
+      const [p, done] = await Promise.all([store.getProfile(), store.getShoppedWeeks()]);
+      const a = resolveAnchor({ lastShopDate: done[0]?.week_start, firstShopDate: p.first_shop_date });
+      const curKey = weekStartFor(0, a), prevKey = weekStartFor(-1, a);
+      const [cur, prev] = await Promise.all([store.getWeek(curKey), store.getWeek(prevKey)]);
       setProfile(p); setTargets(calculateTargets(p));
-      const cur = await store.getWeek(weekStartFor(0, anchor));
-      if (cur?.plan) setWeeks((w) => ({ ...w, [weekStartFor(0, anchor)]: cur.plan }));
-      else await makePlan(0, p);
-      const prev = await store.getWeek(weekStartFor(-1, anchor));
-      if (prev?.plan) setWeeks((w) => ({ ...w, [weekStartFor(-1, anchor)]: prev.plan }));
-      // Rows written before there were accounts have no owner. Claim them once
-      // so nothing has to be migrated by hand, and so signing in doesn't look
-      // like everything vanished.
-      if (session?.user?.id) {
-        try {
-          const claimed = await store.adoptOrphanRows(session.user.id);
-          if (claimed) console.info(`adopted ${claimed} pre-account rows`);
-        } catch {}
-      }
-      const done = await store.getShoppedWeeks().catch(() => []);
       setShopped(done);
+      setWeeks((w) => ({ ...w, ...(cur?.plan ? { [curKey]: cur.plan } : {}), ...(prev?.plan ? { [prevKey]: prev.plan } : {}) }));
       // Open on the shop you still owe. Once this week is bought, that's next week.
-      setShopOffset(done.some((r) => r.week_start === weekStartFor(0, anchor)) ? 1 : 0);
-      await Promise.all([loadPantry(), loadRules(), loadLogs(), loadExtras()]);
-    } catch (e) { console.error(e); await makePlan(0, store.DEFAULT_PROFILE); }
-    setBooted(true);
+      setShopOffset(done.some((r) => r.week_start === curKey) ? 1 : 0);
+      await Promise.all([loadPantry(), loadRules(), loadLogs(a), loadExtras()]);
+      // A missing plan for the week is built after this, by ensureShopPlan,
+      // which runs once the dates above are in state.
+      setBooted(true);
+    } catch (e) {
+      // A failed load used to fall through to generating and saving a plan
+      // from the default profile. Now it says so and offers a retry, and
+      // nothing is written.
+      console.error(e);
+      setBootError(e?.message || "Couldn't load your plan.");
+      return;
+    }
+    // Rows written before there were accounts have no owner. Claim them once
+    // so nothing has to be migrated by hand. Not on the launch path.
+    // Once per device is plenty: it was eight writes on every launch.
+    const adopted = `hv-adopted-${session?.user?.id}`;
+    let done = false; try { done = localStorage.getItem(adopted) === "1"; } catch {}
+    if (session?.user?.id && !done) store.adoptOrphanRows(session.user.id).then(() => { try { localStorage.setItem(adopted, "1"); } catch {} }).catch(() => {});
   }
 
   const loadPantry = async () => { try { setPantry(await store.getPantry()); } catch {} };
@@ -392,9 +405,9 @@ function App({ session }) {
     try { setCustom(await store.getCustomItems()); } catch {}
     try { setHaveEnough((await store.getHaveEnough()).map((h) => h.ingredient_id)); } catch {}
   };
-  async function loadLogs() {
+  async function loadLogs(a = anchor) {
     try {
-      const rows = await store.getLogsForRange(iso(dateForDay(-1, 0, anchor)), iso(dateForDay(1, 6, anchor)));
+      const rows = await store.getLogsForRange(iso(dateForDay(-1, 0, a)), iso(dateForDay(1, 6, a)));
       const m = {}; rows.forEach((r) => { m[`${r.log_date}|${r.slot}`] = r; });
       setLogs(m);
     } catch {}
@@ -703,7 +716,7 @@ function App({ session }) {
   /* ------- chat ------- */
   async function sendMessage(text) {
     const next = [...chat, { role: "user", content: text }];
-    setChat(next); setBusy(true);
+    setChat(next); setThinking(true);
     try {
       // The model was shown THIS week's plan while its edits landed on whichever
       // week the calendar was parked on, so asking to change next week while
@@ -718,10 +731,10 @@ function App({ session }) {
       });
       setChat([...next, { role: "assistant", content: reply }]);
       for (const a of actions || []) await runAction(a);
-    } catch (e) { setChat([...next, { role: "assistant", content: `Couldn't reach the assistant — ${e.message}` }]); }
-    setBusy(false);
+    } catch (e) { setChat([...next, { role: "assistant", content: e.message || "The assistant didn't answer. Everything else still works." }]); }
+    setThinking(false);
   }
-  const send = async () => { const v = input.trim(); if (!v || busy) return; setInput(""); await sendMessage(v); };
+  const send = async () => { const v = input.trim(); if (!v || thinking) return; setInput(""); await sendMessage(v); };
 
   async function runAction(a) {
     if (!a?.type) return;
@@ -869,18 +882,38 @@ function App({ session }) {
 
   const allTicked = grocery?.items.length > 0 && grocery.items.every((i) => checked[i.id]);
 
+  if (bootError) {
+    return (
+      <div style={{ background: t.bg, minHeight: "100dvh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(env(safe-area-inset-top) + 24px) 22px calc(env(safe-area-inset-bottom) + 24px)", textAlign: "center" }}>
+        <div style={{ maxWidth: 320 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Couldn't load your plan</div>
+          <div style={{ fontSize: 14, color: t.soft, lineHeight: 1.5, marginBottom: 20 }}>
+            The database didn't answer, so nothing has been changed. Check your signal and try again.
+          </div>
+          <Btn kind="primary" size="lg" style={{ width: "100%" }} onClick={boot}>Try again</Btn>
+          <div style={{ fontSize: 11.5, color: t.dim, marginTop: 14 }}>{bootError}</div>
+        </div>
+      </div>
+    );
+  }
+
   // Installed on iOS the app paints under the status bar, so the top needs the
   // same safe-area inset the bottom nav already has, or the title sits behind
   // the clock.
   return (
-    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", paddingTop: "env(safe-area-inset-top)", paddingBottom: 78 }}>
+    <div style={{ background: t.bg, minHeight: "100dvh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", paddingTop: "env(safe-area-inset-top)", paddingBottom: "calc(var(--nav-h) + 16px)" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
         *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}body{margin:0;overscroll-behavior-y:none}
         button{font-family:inherit}input,select,textarea{font-family:inherit;outline:none;font-size:16px}
         ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:${t.line};border-radius:3px}
         .row{display:flex}.col{display:flex;flex-direction:column}
         .stack>*+*{margin-top:10px}
-        @media(min-width:900px){.wrap{max-width:860px;margin:0 auto}}`}</style>
+        @media(min-width:900px){.wrap{max-width:860px;margin:0 auto}}
+        /* One measurement for the tab bar, used everywhere that has to clear
+           it. Pages used to pad a fixed 78px while the bar is 51px plus the
+           home-indicator inset (34px on an iPhone), so the bottom of every
+           page sat behind it, and the chat box was pinned 84px up, under it. */
+        :root{--nav-h:calc(51px + env(safe-area-inset-bottom))}`}</style>
 
       {toast && (
         <div style={{ position: "fixed", top: "calc(env(safe-area-inset-top) + 12px)", left: 12, right: 12, zIndex: 300, display: "flex", justifyContent: "center" }}>
@@ -973,7 +1006,11 @@ function App({ session }) {
                 onClick={() => { if (weekOffset < 8) { setWeekOffset((o) => o + 1); loadWeekIfNeeded(weekOffset + 1); } }}>→</Btn>
             </div>
 
-            {!plan ? (
+            {!plan && !booted ? (
+              <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center", fontSize: 14, color: t.soft }}>
+                Loading your plan…
+              </div>
+            ) : !plan ? (
               <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 16, padding: "36px 22px", textAlign: "center" }}>
                 <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>Not generated yet</div>
                 <div style={{ fontSize: 14, color: t.soft, marginBottom: 20, lineHeight: 1.5 }}>There's no plan for {labelFor(weekOffset).toLowerCase()}.</div>
@@ -1262,7 +1299,7 @@ function App({ session }) {
 
         {/* ---------- AI ---------- */}
         {tab === "ai" && (
-          <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100vh - 190px)" }}>
+          <div style={{ display: "flex", flexDirection: "column", minHeight: "calc(100dvh - env(safe-area-inset-top) - var(--nav-h) - 140px)" }}>
             <h2 style={{ fontSize: 21, fontWeight: 700, margin: "0 0 4px" }}>hungryvar ai</h2>
             <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 16px" }}>It can change your plan, list, pantry and settings — just ask.</p>
 
@@ -1282,16 +1319,16 @@ function App({ session }) {
                     <div style={{ fontSize: 14.5, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{m.content}</div>
                   </div>
                 ))}
-                {busy && <div style={{ fontSize: 13.5, color: t.dim, padding: "6px 2px" }}>thinking…</div>}
+                {thinking && <div style={{ fontSize: 13.5, color: t.dim, padding: "6px 2px" }}>thinking…</div>}
                 <div ref={chatEnd} />
               </div>
             </div>
 
-            <div style={{ position: "sticky", bottom: 84, background: t.bg, paddingTop: 12, display: "flex", gap: 8 }}>
+            <div style={{ position: "sticky", bottom: "calc(var(--nav-h) + 8px)", background: t.bg, paddingTop: 12, display: "flex", gap: 8 }}>
               <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()}
                 placeholder="ask anything…"
                 style={{ flex: 1, background: t.card, border: `1px solid ${t.line}`, borderRadius: 13, padding: "14px 15px", color: t.text }} />
-              <Btn kind="primary" size="lg" onClick={send} disabled={busy} style={{ padding: "0 18px" }}>→</Btn>
+              <Btn kind="primary" size="lg" onClick={send} disabled={thinking} style={{ padding: "0 18px" }}>→</Btn>
             </div>
           </div>
         )}
@@ -1399,7 +1436,7 @@ function App({ session }) {
       <nav style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: t.panel, borderTop: `1px solid ${t.line}`, display: "flex", paddingBottom: "env(safe-area-inset-bottom)", zIndex: 150 }}>
         {TABS.map((x) => (
           <button key={x.id} onClick={() => setTab(x.id)}
-            style={{ flex: 1, background: "none", border: "none", padding: "11px 0 13px", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, color: tab === x.id ? t.peri : t.dim }}>
+            style={{ flex: 1, height: 50, background: "none", border: "none", padding: "7px 0 5px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, color: tab === x.id ? t.peri : t.dim }}>
             <span style={{ fontSize: 18, lineHeight: 1 }}>{x.icon}</span>
             <span style={{ fontSize: 10.5, fontWeight: 600 }}>{x.label}</span>
           </button>
@@ -1533,14 +1570,17 @@ function SignIn() {
         await store.signIn(email.trim(), pw);
       }
     } catch (err) {
-      setMsg({ ok: false, text: err?.message || "That didn't work." });
+      // "Invalid login credentials" is the server's wording for a wrong
+      // email or password; anything else is the database not answering.
+      const m = err?.message || "";
+      setMsg({ ok: false, text: /invalid login/i.test(m) ? "Wrong email or password." : /fetch|network|answering|load failed/i.test(m) ? "Can't reach the database. Check your signal and try again." : m || "That didn't work." });
     }
     setBusy(false);
   }
 
   const field = { width: "100%", padding: "13px 14px", borderRadius: 12, background: t.card, border: `1px solid ${t.line}`, color: t.text, marginBottom: 10 };
   return (
-    <div style={{ background: t.bg, minHeight: "100vh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(env(safe-area-inset-top) + 24px) 18px calc(env(safe-area-inset-bottom) + 24px)" }}>
+    <div style={{ background: t.bg, minHeight: "100dvh", color: t.text, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: "calc(env(safe-area-inset-top) + 24px) 18px calc(env(safe-area-inset-bottom) + 24px)" }}>
       <form onSubmit={go} style={{ width: "100%", maxWidth: 340 }}>
         <h1 style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.03em", margin: "0 0 4px" }}>hungryvar</h1>
         <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 22px", lineHeight: 1.5 }}>
@@ -1556,29 +1596,63 @@ function SignIn() {
         <Btn kind="primary" size="lg" style={{ width: "100%" }} onClick={go} disabled={busy}>
           {busy ? "…" : mode === "up" ? "Create account" : "Sign in"}
         </Btn>
-        <button type="button" onClick={() => { setMode(mode === "up" ? "in" : "up"); setMsg(null); }}
-          style={{ background: "none", border: "none", color: t.peri, fontSize: 13.5, fontWeight: 600, marginTop: 14, width: "100%", fontFamily: "inherit" }}>
-          {mode === "up" ? "I already have an account" : "Create an account"}
-        </button>
       </form>
     </div>
   );
 }
 
 /** Decides whether there's anyone to show the app to. Without Supabase
- *  configured the app runs on its in-memory store, which has no accounts. */
+ *  configured the app runs on its in-memory store, which has no accounts.
+ *
+ *  The sign-in screen only appears when this device has no saved session at
+ *  all. A saved session that can't be refreshed right now (no signal, the
+ *  database waking up) gets a "reconnecting" screen that keeps retrying,
+ *  rather than a login form for a session that was never lost. */
 export default function Root() {
-  const [session, setSession] = useState(undefined);   // undefined = still checking
+  const [session, setSession] = useState(undefined);   // undefined = checking, "retry" = saved but unreachable
 
   useEffect(() => {
     if (!store.isConfigured) { setSession(null); return; }
-    store.getSession().then((s) => setSession(s)).catch(() => setSession(null));
-    return store.onAuthChange((s) => setSession(s));
+    let alive = true;
+    const settle = (s) => { if (alive) setSession(s || (store.hasSavedSession() ? "retry" : null)); };
+    store.getSession().then(settle).catch(() => settle(null));
+    // A refresh that can't reach the server is retried inside the auth
+    // library for up to half a minute before getSession answers, and that
+    // was a blank screen. Say what's happening after a moment instead.
+    const slow = setTimeout(() => { if (alive && store.hasSavedSession()) setSession((cur) => (cur === undefined ? "retry" : cur)); }, 2500);
+    const off = store.onAuthChange(settle);
+    // Ask the browser not to clear this site's storage. Safari wipes storage
+    // for sites unused for 7 days; a home-screen app is exempt, and this asks
+    // for the same treatment where it's offered.
+    try { navigator.storage?.persist?.(); } catch {}
+    return () => { alive = false; clearTimeout(slow); off(); };
   }, []);
+
+  // While reconnecting, try again every few seconds and whenever the phone
+  // comes back to the app or regains signal.
+  useEffect(() => {
+    if (session !== "retry") return;
+    let alive = true;
+    const again = () => store.getSession()
+      .then((s) => { if (alive && s) setSession(s); else if (alive && !store.hasSavedSession()) setSession(null); })
+      .catch(() => {});
+    const timer = setInterval(again, 5000);
+    const onVis = () => { if (document.visibilityState === "visible") again(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", again);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVis); window.removeEventListener("online", again); };
+  }, [session]);
 
   if (!store.isConfigured) return <App session={null} />;
   if (session === undefined) {
-    return <div style={{ background: t.bg, minHeight: "100vh" }} />;
+    return <div style={{ background: t.bg, minHeight: "100dvh" }} />;
+  }
+  if (session === "retry") {
+    return (
+      <div style={{ background: t.bg, minHeight: "100dvh", color: t.soft, fontFamily: "Inter,system-ui,-apple-system,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center", fontSize: 14, lineHeight: 1.5 }}>
+        <div>Can't reach the database right now.<br />You're still signed in. Retrying…</div>
+      </div>
+    );
   }
   if (!session) return <SignIn />;
   return <App key={session.user.id} session={session} />;
