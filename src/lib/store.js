@@ -110,7 +110,7 @@ import { iso } from "./weeks.js";
 // ---------- Profile (editable settings) ----------
 export const DEFAULT_PROFILE = {
   age: 19, height_cm: 185, weight_kg: 72.5, sex: "male",
-  training_days: 5, goal: "mild_cut", budget_cap: 68,
+  training_days: 5, goal: "recomp", budget_cap: 68,
   meals_per_day: 4, max_cook_minutes: 30, dislikes: ["corn"], notes: "",
 };
 
@@ -274,6 +274,20 @@ export async function getShoppedWeeks(limit = 20) {
   return data || [];
 }
 
+/** "I'm shopping today": the plan for the week that starts today becomes the
+ *  live one straight away, so the calendar follows without waiting for
+ *  "Groceries done". It's marked active but not bought (no shopped_at): the
+ *  anchor comes from the newest active week, and being bought comes from
+ *  shopped_at, which only "Groceries done" sets. */
+export async function startWeek(weekStart, plan, targets, budgetCap) {
+  const row = await saveWeekVersion(weekStart, plan, targets, budgetCap);
+  if (!supabase) { row.status = "active"; return row; }
+  if (!(await statusAvailable())) return row;
+  const { error } = await supabase.from("weeks").update({ status: "active" }).eq("id", row.id);
+  if (error) throw error;
+  return { ...row, status: "active" };
+}
+
 /** Undo of "Groceries done" — the shop didn't happen after all. Without this the
  *  pantry was restored but the week stayed marked bought, so the Shop tab moved
  *  on to next week and the list you'd just un-bought was unreachable. */
@@ -282,11 +296,14 @@ export async function unmarkWeekShopped(shopDate, restoreKey) {
   // week it was generated for, so the anchor falls back to the shop before it.
   if (!supabase) {
     memory.weeks = (memory.weeks || []).map((w) => (w.week_start === shopDate && w.status === "active"
-      ? { ...w, week_start: restoreKey || w.week_start, status: "draft", shopped_at: null } : w));
+      ? { ...w, week_start: restoreKey || w.week_start, status: restoreKey === shopDate ? "active" : "draft", shopped_at: null } : w));
     return;
   }
   if (!(await statusAvailable())) return;
-  const patch = { status: "draft", shopped_at: null };
+  // A week started with "I'm shopping today" stays the live week after an
+  // undo; only the bought mark goes. A plan that was merely re-dated falls
+  // back to the draft it was.
+  const patch = { status: restoreKey === shopDate ? "active" : "draft", shopped_at: null };
   if (restoreKey) patch.week_start = restoreKey;
   await supabase.from("weeks").update(patch).eq("week_start", shopDate).eq("status", "active");
 }
@@ -616,4 +633,58 @@ export async function toggleStaple(id, bought) {
   }
   const { error } = await supabase.from("staples").update({ bought }).eq("id", id);
   if (error) throw error;
+}
+
+// ---------- Starting a new shop ----------
+// How long a pantry row is still good, in days since it was bought. A shelf
+// life from Ocado's guarantee or his own estimate (`life`), the fridge life on
+// the ingredient, or, for things the list tells him to freeze, four weeks.
+// Cupboard items don't expire here.
+function shelfDays(id, ing, prod) {
+  const fridge = Math.max(prod?.life ?? 0, ing?.storageDays?.fridge ?? 0);
+  const frozen = (prod?.freezable || (ing?.storageDays?.freezer ?? 0) >= 90) ? 28 : 0;
+  return Math.max(fridge, frozen, 1);
+}
+
+/** Bring the pantry up to date when a new shop starts, so the next list is
+ *  worked out from what's really in the kitchen. Two things:
+ *  - Meals in the plan that just ended count as eaten if there's no log for
+ *    them. Stock only ever went down when he ticked a meal, so six weeks of
+ *    untouched plans left a fully stocked kitchen on paper and a £15 list.
+ *    A meal he logged as eaten was already taken off; one logged as ate out
+ *    or skipped wasn't cooked, so its food stays. Not applied to a plan that
+ *    ended more than two weeks ago: after that gap nobody knows what was
+ *    eaten, so only expiry does the work.
+ *  - Fresh food older than its shelf life drops off.
+ *  `ing` and `products` are passed in to keep this file free of food data. */
+export async function settlePantry({ plan, anchorDate, daysSince, logs, allIngredients, products, dayIso }) {
+  const result = { counted: 0, expired: [] };
+  if (daysSince == null || daysSince < 1) return result;   // nothing has ended yet
+
+  const planEnded = daysSince - 7;                  // days since the last planned day
+  if (plan && planEnded <= 14) {
+    const lastDay = Math.min(6, daysSince - 1);     // days strictly before today
+    const have = new Set((logs || []).map((l) => `${l.log_date}|${l.slot}`));
+    const items = [];
+    for (let di = 0; di <= lastDay; di++) {
+      const date = dayIso(di);
+      for (const m of plan[di]?.meals || []) {
+        if (m.eatOut || m.slot === "Shake") continue;
+        if (have.has(`${date}|${m.slot}`)) continue;   // logged: eaten (already counted) or not cooked
+        for (const it of m.items || []) items.push(it);
+      }
+    }
+    if (items.length) { await consumeIngredients(items); result.counted = items.length; }
+  }
+
+  const rows = await getPantry();
+  for (const r of rows) {
+    if (r.category === "cupboard") continue;
+    const ing = allIngredients.find((x) => x.id === r.ingredient_id);
+    if (daysSince > shelfDays(r.ingredient_id, ing, products[r.ingredient_id])) {
+      await removePantryItem(r.ingredient_id);
+      result.expired.push(r.name);
+    }
+  }
+  return result;
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
 import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules, fitsDay, parseOut } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
-import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
+import { allIngredients, kitchenAmount, macrosFor, products } from "./lib/foodDatabase.js";
 import { recipes, HOB } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
@@ -282,6 +282,8 @@ function App({ session }) {
   const [booted, setBooted] = useState(false);
   const [bootError, setBootError] = useState(null);
   const [shopCheckOff, setShopCheckOff] = useState(false);
+  const [confirmToday, setConfirmToday] = useState(false);
+  const startingShop = useRef(false);
   const [confirmShop, setConfirmShop] = useState(null);
   const chatEnd = useRef(null);
   const pendingLog = useRef(null);   // where an AI macro estimate must land
@@ -294,7 +296,6 @@ function App({ session }) {
   // show. One value, resolved here, and every week calculation takes it.
   const anchor = resolveAnchor({
     lastShopDate: shopped[0]?.week_start,
-    firstShopDate: profile.first_shop_date,
   });
   const DAYS = daysFrom(anchor);              // e.g. a Tuesday shop -> Tue…Mon
   const eatOut = store.prefFrom(profile, "eat_out", store.DEFAULT_EAT_OUT);
@@ -328,7 +329,9 @@ function App({ session }) {
   const shopKey = weekStartFor(shopOffset, anchor);
   const shopPlan = weeks[shopKey] || null;
   const shopRow = (offset) => shopped.find((r) => r.week_start === weekStartFor(offset, anchor)) || null;
-  const isShopped = (offset) => Boolean(shopRow(offset));
+  // A week started with "I'm shopping today" is the live week but isn't bought
+  // until "Groceries done" stamps it.
+  const isShopped = (offset) => Boolean(shopRow(offset)?.shopped_at);
 
   // Everything the Shop tab shows and allows comes out of one pure function, so
   // the cursor and the clock can't quietly get mixed up in a JSX ternary.
@@ -359,16 +362,6 @@ function App({ session }) {
   // The draft is the first week that hasn't been bought for. Settings changes
   // regenerate this one and never a week whose food is already in the kitchen.
   const draftOffset = isShopped(0) ? 1 : 0;
-
-  // Before the first shop there is no real anchor and an empty kitchen by
-  // definition, so nothing can have run out and there is nothing to reconcile.
-  const firstShopIn = (() => {
-    if (!profile.first_shop_date) return null;
-    const [y, m, d] = String(profile.first_shop_date).split("-").map(Number);
-    const then = new Date(y, m - 1, d); then.setHours(0, 0, 0, 0);
-    const now = new Date(); now.setHours(0, 0, 0, 0);
-    return Math.round((then - now) / 86400000);
-  })();
 
   useEffect(() => { boot(); }, []);
   // dayIdx starts at 0 because the anchor isn't known until the profile and shop
@@ -433,14 +426,14 @@ function App({ session }) {
       // history had loaded, so it looked under today's date, found nothing,
       // and generated and saved a fresh plan on almost every launch.
       const [p, done] = await Promise.all([store.getProfile(), store.getShoppedWeeks()]);
-      const a = resolveAnchor({ lastShopDate: done[0]?.week_start, firstShopDate: p.first_shop_date });
+      const a = resolveAnchor({ lastShopDate: done[0]?.week_start });
       const curKey = weekStartFor(0, a), prevKey = weekStartFor(-1, a);
       const [cur, prev] = await Promise.all([store.getWeek(curKey), store.getWeek(prevKey)]);
       setProfile(p); setTargets(calculateTargets(p));
       setShopped(done);
       setWeeks((w) => ({ ...w, ...(cur?.plan ? { [curKey]: cur.plan } : {}), ...(prev?.plan ? { [prevKey]: prev.plan } : {}) }));
       // Open on the shop you still owe. Once this week is bought, that's next week.
-      setShopOffset(done.some((r) => r.week_start === curKey) ? 1 : 0);
+      setShopOffset(done.some((r) => r.week_start === curKey && r.shopped_at) ? 1 : 0);
       await Promise.all([loadPantry(), loadRules(), loadLogs(a), loadExtras()]);
       // A missing plan for the week is built after this, by ensureShopPlan,
       // which runs once the dates above are in state.
@@ -541,6 +534,9 @@ function App({ session }) {
     [...(profile.dislikes || [])].sort(),
     profile.budget_cap,
     [...store.prefFrom(profile, "eat_out", store.DEFAULT_EAT_OUT)].sort(),
+    // The targets themselves: a new goal or weight changes what a plan has to
+    // hit, so the draft is rebuilt rather than left on the old numbers.
+    profile.goal, profile.weight_kg, profile.training_days,
   ]);
   useEffect(() => {
     if (!booted) return;
@@ -549,7 +545,7 @@ function App({ session }) {
     lastSettings.current = settingsSig;
     const t = setTimeout(() => {
       const key = weekStartFor(draftOffset, anchor);
-      if (!weeks[key] || shopped.some((r) => r.week_start === key) || busy) return;
+      if (!weeks[key] || shopped.some((r) => r.week_start === key && r.shopped_at) || busy) return;
       makePlan(draftOffset, profile, { quiet: true });
     }, 3000);
     return () => clearTimeout(t);
@@ -579,6 +575,45 @@ function App({ session }) {
     setBusy(false);
     if (quiet) flash(`${labelFor(offset)} rebuilt around your new rules`);
     else flash(offset === weekOffset ? "New plan ready" : `${labelFor(offset)} planned`);
+  }
+
+  /** "I'm shopping today". One action: the week starts today, a fresh plan is
+   *  built from today, the pantry is brought up to date, and the full list is
+   *  on screen. No dates to enter; the week is whatever day he says it is. */
+  async function shopToday() {
+    if (startingShop.current) return;
+    startingShop.current = true; setConfirmToday(false); setBusy(true);
+    const todayKey = iso(new Date());
+    // Everything about the week that's ending is read now, before the anchor moves.
+    const endingPlan = weeks[weekStartFor(0, anchor)];
+    const endingSince = shopped.length ? sinceShop : null;
+    const dayIso = (di) => iso(dateForDay(0, di, anchor));
+    const oldStart = dayIso(0), oldEnd = dayIso(6);
+    try {
+      const tg = calculateTargets(profile);
+      const cap = profile.budget_cap || 68;
+      const opts = { ...interpretRules(rules), blocked: excludeDisliked(profile.dislikes || []), days: daysFrom(todayKey), out: parseOut(eatOut) };
+      const p = generateWeek(tg, cap, 60, opts);
+      await store.startWeek(todayKey, p, tg, cap);
+      const spent = appliedRules(p, opts.matched).filter((m) => m.kind === "craving" && m.id);
+      if (spent.length) { try { await store.removeRules(spent.map((m) => m.id)); await loadRules(); } catch {} }
+
+      let settled = null;
+      if (endingSince !== null) {
+        try {
+          const logsThen = await store.getLogsForRange(oldStart, oldEnd);
+          settled = await store.settlePantry({ plan: endingPlan, daysSince: endingSince, logs: logsThen, allIngredients, products, dayIso });
+        } catch (e) { console.error(e); flash("Couldn't update the pantry, so the list may be short. Check Pantry."); }
+      }
+      await Promise.all([loadShopped(), loadPantry()]);
+      setWeeks((w) => ({ ...w, [todayKey]: p }));
+      setWeekOffset(0); setShopOffset(0); setDayIdx(0); setChecked({}); setTab("groceries");
+      if (settled) flash(settled.expired.length ? `New week from today. ${settled.expired.length} out-of-date item${settled.expired.length === 1 ? "" : "s"} cleared from the pantry` : "New week from today");
+    } catch (e) {
+      console.error(e);
+      flash("Couldn't start the week. Nothing was changed, so try again.");
+    }
+    setBusy(false); startingShop.current = false;
   }
 
   async function applyPlan(next) {
@@ -896,7 +931,7 @@ function App({ session }) {
         // "Add it to next week" should change next week, not wait for the next
         // time he happens to regenerate. Never touches a week already bought for.
         const key = weekStartFor(draftOffset, anchor);
-        if (!shopped.some((r) => r.week_start === key)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
+        if (!shopped.some((r) => r.week_start === key && r.shopped_at)) await makePlan(draftOffset, profile, { quiet: true, rules: fresh });
         else flash("Craving noted");
       } catch {}
       return;
@@ -998,6 +1033,14 @@ function App({ session }) {
               style={{ background: "none", border: "none", color: t.peri, fontWeight: 700, fontSize: 14 }}>Undo</button>}
           </div>
         </div>
+      )}
+
+      {confirmToday && (
+        <Modal onClose={() => setConfirmToday(false)} title="Shopping today?"
+          body={`The week starts today and runs seven days. I'll build a fresh plan from today, bring your pantry up to date (meals from the last plan that you didn't log count as eaten, and fresh food past its date is cleared), and give you the full list.`}>
+          <Btn kind="primary" size="lg" style={{ flex: 1 }} onClick={shopToday}>Start today</Btn>
+          <Btn size="lg" onClick={() => setConfirmToday(false)}>Cancel</Btn>
+        </Modal>
       )}
 
       {openMeal && <RecipePage meal={openMeal} onBack={() => setOpenMeal(null)} hob={hob} onHob={saveHob} />}
@@ -1146,7 +1189,7 @@ function App({ session }) {
               Nothing was bought for since, so these days have no meals rather than being quietly rolled into a new week.
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn kind="good" size="sm" style={{ flex: 1 }} onClick={() => { setTab("groceries"); setShopOffset(1); }}>Shop for the next week</Btn>
+              <Btn kind="good" size="sm" style={{ flex: 1 }} onClick={() => setConfirmToday(true)}>I'm shopping today</Btn>
               <Btn size="sm" onClick={() => makePlan(0)}>Extend this one</Btn>
             </div>
           </div>
@@ -1175,15 +1218,14 @@ function App({ session }) {
                 you're looking at is never in doubt. Browsing here changes which
                 week's data you see; it never changes what the app thinks the
                 date is — that comes from weekStartFor(0, anchor) inside shopView. */}
-            {preFirstShop && (
-              <div style={{ background: "rgba(124,156,255,.08)", border: `1px solid rgba(124,156,255,.35)`, borderRadius: 14, padding: "13px 15px", marginBottom: 12 }}>
-                <div style={{ fontSize: 14.5, fontWeight: 600, marginBottom: 3 }}>Your first shop</div>
-                <div style={{ fontSize: 13, color: t.soft, lineHeight: 1.5 }}>
-                  {firstShopIn === null ? "Nothing bought yet, so the kitchen starts empty and this is the full list."
-                    : firstShopIn > 1 ? `In ${firstShopIn} days, on ${new Date(profile.first_shop_date + "T12:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}. Nothing to do until then — the kitchen is empty, so this is the full list.`
-                    : firstShopIn === 1 ? "Tomorrow. The kitchen is empty, so this is the full list."
-                    : firstShopIn === 0 ? "Today. Tick things off as you go, then tap Groceries done."
-                    : `Was due ${-firstShopIn} day${firstShopIn === -1 ? "" : "s"} ago. Tap Groceries done once you've been.`}
+            {tab === "groceries" && (
+              <div style={{ marginBottom: 12 }}>
+                <Btn kind="good" size="lg" style={{ width: "100%" }} disabled={busy} onClick={() => setConfirmToday(true)}>
+                  {busy ? "Working…" : shopped.length && sinceShop === 0 ? "Rebuild the plan from today" : "I'm shopping today"}
+                </Btn>
+                <div style={{ fontSize: 12.5, color: t.dim, marginTop: 7, textAlign: "center", lineHeight: 1.45 }}>
+                  {preFirstShop ? "Nothing bought yet, so the kitchen starts empty and this is the full list."
+                    : "Starts the week today, builds a fresh plan and gives you the full list."}
                 </div>
               </div>
             )}
@@ -1249,7 +1291,7 @@ function App({ session }) {
                   </div>
                   {diff > 0.5 && longer.length > 0 && (
                     <div style={{ fontSize: 12.5, color: t.soft, marginTop: 8, lineHeight: 1.45 }}>
-                      The till is £{diff.toFixed(2)} more because {longer.map((i) => i.name.toLowerCase()).join(", ")} {longer.length === 1 ? "lasts" : "last"} more than a week, so only a share counts against this week.
+                      The till is £{diff.toFixed(2)} more because {longer.length > 3 ? `${longer.length} items (${longer.slice(0, 3).map((i) => i.name.toLowerCase()).join(", ")} and more)` : longer.map((i) => i.name.toLowerCase()).join(", ")} {longer.length === 1 ? "lasts" : "last"} more than a week, so only a share counts against this week.
                     </div>
                   )}
                   {diff < -0.5 && (
@@ -1448,9 +1490,6 @@ function App({ session }) {
               <Field label="Training days per week" type="number" value={profile.training_days} onSave={(v) => saveField("training_days", +v)} />
               <Field label="Goal" type="select" value={profile.goal} options={[["maintain", "Maintain"], ["recomp", "Recomp (slow)"], ["mild_cut", "Lean down (gentle)"], ["cut", "Cut (aggressive)"]]} onSave={(v) => saveField("goal", v)} />
               <Field label="Weekly budget (£)" type="number" value={profile.budget_cap} onSave={(v) => saveField("budget_cap", +v)} />
-              {/* A native date input: 88px of monospace text entry is not a way to
-                  type a date on a phone. */}
-              <Field label="First shop" type="date" value={profile.first_shop_date || ""} onSave={(v) => saveField("first_shop_date", v || null)} />
               <Field label="Max cook time (min)" type="number" value={profile.max_cook_minutes} onSave={(v) => saveField("max_cook_minutes", +v)} />
             </Section>
 

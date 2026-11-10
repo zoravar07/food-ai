@@ -20,7 +20,7 @@ import { daysFrom } from "./src/lib/weeks.js";
 const ANCHOR = process.env.ANCHOR || "2026-09-06";
 const DAYS = daysFrom(ANCHOR);
 
-const tg = calculateTargets({ age:19, height_cm:185, weight_kg:72.5, sex:"male", training_days:5, goal:"mild_cut" });
+const tg = calculateTargets({ age:19, height_cm:185, weight_kg:72.5, sex:"male", training_days:5, goal: process.env.GOAL || "recomp" });
 // CAP=65 to sweep another budget. PRICES=regular plans at shelf prices, so
 // the cap is shown to survive the Innocent and Estate Dairy offers ending.
 const CAP = Number(process.env.CAP || 68);

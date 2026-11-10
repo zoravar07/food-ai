@@ -23,7 +23,10 @@ Cooks fresh in a shared uni kitchen in London, ≤30 min, hates reheating leftov
 Budget is set in Settings (£68 works at current offers, £72 at shelf prices).
 Cooks ~90% of meals and eats out 1-2 times a week, so the plan covers 19-20 of
 21 meals: the open slots are set in Settings (`eat_out`, default Sat dinner and
-Wed lunch). Induction hob, numbered 1-9. Big foodie — lunches and dinners must
+Wed lunch). Induction hob, numbered 1-9. Goal is Recomp (-8%, 2,554 kcal,
+174g protein): he trains 5x a week, is already lean and isn't trying to lose
+weight. A 12% deficit was the third thing underfeeding him, after the old
+top-up stops. Big foodie — lunches and dinners must
 vary. Breakfast is the same granola bowl most days, by his choice.
 Shops on Ocado. Buys no fresh fruit or veg: frozen and tinned only. Often has
 no time to cook, so the library leans on assembly and microwave meals.
@@ -144,6 +147,22 @@ several issues here only appeared 3 times in 40 runs.
   anchor and saved a new plan on most launches. A failed boot writes nothing.
 - The assistant has its own busy flag (`thinking`), so it can never grey out
   the planner. Model chain and test results are in api/chat.js.
+
+## "I'm shopping today"
+
+One button on the Shop tab (and the overdue banner). `shopToday()` in App.jsx:
+builds a fresh plan from today and saves it with `store.startWeek` (status
+active, no `shopped_at`), so the anchor moves immediately; then
+`store.settlePantry` runs against the week that ended. Being *bought* comes
+from `shopped_at` only, which "Groceries done" sets (`isShopped`). The anchor
+comes from the newest active week; there is no first-shop-date setting.
+
+`settlePantry`: meals of the ended plan with no log count as eaten (logged
+eaten were already deducted; ate-out/skipped weren't cooked so stay in stock),
+unless the plan ended more than 14 days ago, when nobody knows what was eaten.
+Fresh rows older than their shelf life are removed (`shelfDays`); cupboard rows
+never expire. Stock only ever dropped when he ticked a meal, so six weeks of
+untouched plans once left a fully stocked kitchen on paper and a £15 list.
 
 ## Hob settings
 
