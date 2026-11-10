@@ -7,7 +7,7 @@
 // generation hides bugs at low sample sizes — 100+ is the bar. Exits non-zero on
 // any failure so it can gate a commit.
 import { calculateTargets } from "./src/lib/macroEngine.js";
-import { generateWeek, excludeDisliked, interpretRules, templates, usablePins, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, fitsDay, fruitCount, lateOn, FRUIT_PER_WEEK } from "./src/lib/mealPlanner.js";
+import { generateWeek, excludeDisliked, interpretRules, templates, parseOut, dayTargets, usablePins, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, fitsDay, fruitCount, lateOn, FRUIT_PER_WEEK } from "./src/lib/mealPlanner.js";
 import { buildGroceryList } from "./src/lib/groceryListGenerator.js";
 import { allIngredients, pricing } from "./src/lib/foodDatabase.js";
 import { shopView } from "./src/lib/shopView.js";
@@ -27,14 +27,17 @@ const CAP = Number(process.env.CAP || 68);
 if (process.env.PRICES === "regular") pricing.regular = true;
 const DISLIKES = (process.env.DISLIKES ?? "corn,salmon").split(",").filter(Boolean);
 const RULES = [{ text: "Burger on Fridays", kind: "standing" }];
+// Meals he eats out for, left open on the plan. OUT="" plans all 21.
+const OUT = parseOut((process.env.OUT ?? "Sat Dinner,Wed Lunch").split(",").filter(Boolean));
+const fullDays = { n: 0, hit: 0, kcal: 0, protein: 0 }, outDays = { n: 0, hit: 0, kcal: 0, protein: 0 };
 const N = Number(process.argv[2] || 150);
 
 const tills = [], weeklies = [], kcals = [], proteins = [], burgers = [];
 const fails = {}; const bad = (k, d) => { (fails[k] ||= []).push(d); };
 const raw = interpretRules(RULES);
-const base = { ...raw, blocked: excludeDisliked(DISLIKES), days: DAYS };
+const base = { ...raw, blocked: excludeDisliked(DISLIKES), days: DAYS, out: OUT };
 // A pin colliding with a dislike is meant to be dropped, so it is not expected to hold.
-const livePins = usablePins(base.pins, base.blocked);
+const livePins = usablePins(base.pins, base.blocked).filter((p) => !OUT.some((o) => o.day === p.day && o.slot === p.slot));
 const allBlocked = new Set(Object.values(base.blocked).flat());
 
 // Every template that uses a disliked ingredient, independent of excludeDisliked,
@@ -45,13 +48,28 @@ for (const [slot, list] of Object.entries(templates))
     if (tpl.items.some(([id]) => DISLIKES.some((d) => id.includes(d.replace(/\s+/g, "_")))))
       badIds.add(tpl.id);
 
-function checkWeek(w, label, pins) {
+function checkWeek(w, label, pins, keepOut = OUT) {
   const g = buildGroceryList(w);
   // The cap is on what the week's food costs, staples spread over the weeks
   // they last. The till total is tracked separately below.
   if (g.weeklyCost > CAP) bad(`${label}: over budget`, g.weeklyCost);
   tills.push(g.estimatedTotal); weeklies.push(g.weeklyCost);
   kcals.push(w.reduce((a, d) => a + d.totals.kcal, 0) / 7); proteins.push(w.reduce((a, d) => a + d.totals.protein, 0) / 7);
+  // On target means within the top-up's stopping point: 97% kcal, 97% protein,
+  // against the full target on a fully planned day and against what's left
+  // of it on a day with a meal out.
+  for (const d of w) {
+    const dt = dayTargets(tg, d.meals), bucket = dt === tg ? fullDays : outDays;
+    bucket.n++; bucket.kcal += d.totals.kcal; bucket.protein += d.totals.protein;
+    if (d.totals.kcal >= dt.targetKcal * 0.97 && d.totals.protein >= dt.protein * 0.97) bucket.hit++;
+  }
+  // The open slots stay open, and nothing else is ever left open.
+  for (const o of keepOut) {
+    const m = w.find((d) => d.day === o.day)?.meals.find((x) => x.slot === o.slot);
+    if (!m?.eatOut) bad(`${label}: EAT-OUT SLOT FILLED`, `${o.day} ${o.slot} -> ${m?.name}`);
+  }
+  const planned = w.reduce((a, d) => a + d.meals.filter((m) => ["Breakfast", "Lunch", "Dinner"].includes(m.slot) && !m.eatOut).length, 0);
+  if (planned !== 21 - keepOut.length) bad(`${label}: WRONG MEAL COUNT`, `${planned} planned`);
   burgers.push(w.filter((d) => /burger/.test(d.meals.find((m) => m.slot === "Dinner")?.id || "")).length);
 
   const listed = new Set(g.items.map((x) => x.id));
@@ -75,7 +93,7 @@ function checkWeek(w, label, pins) {
   // Breakfast repeats by design: the same granola bowl most mornings is what
   // he actually eats. Lunch and dinner still have to vary.
   for (const [slot, floor] of [["Dinner", 3], ["Lunch", 3]]) {
-    const distinct = new Set(w.map((d) => d.meals.find((m) => m.slot === slot)?.id)).size;
+    const distinct = new Set(w.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size;
     if (distinct < floor) bad(`${label}: MONOTONOUS ${slot.toLowerCase()}s`, `${distinct} distinct in 7 days`);
   }
   // Fruit once or twice a week, and nothing eaten past its date. A pinned
@@ -108,7 +126,9 @@ function aiSwap(plan, day, slot) {
   const fresh = unblocked.filter((t) => fitsDay(plan, di, slot, t));
   const allowed = fresh.length ? fresh : unblocked;
   const different = allowed.filter((t) => t.id !== cur?.id);
-  const candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5);
+  const onMenu = new Set(plan.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id));
+  const candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5)
+    .sort((x, y) => onMenu.has(x.id) - onMenu.has(y.id));
   if (!candidates.length) return { plan, changed: false };
 
   const withMeal = (tpl) => plan.map((d, i) => (i !== di ? d : setMealOnDay(d, slot, tpl, tg)));
@@ -117,10 +137,12 @@ function aiSwap(plan, day, slot) {
     const w = rebalanceAfterSwap(withMeal(tpl), tg, CAP, { protect: [{ day, slot }], pins: base.pins, blocked: base.blocked });
     return { tpl, week: w, cost: weekCost(w) };
   };
+  const varied = (w) => !["Lunch", "Dinner"].includes(slot)
+    || new Set(w.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size >= 3;
   let picked = null, cheapest = null;
   const consider = (t) => { if (!cheapest || t.cost < cheapest.cost) cheapest = t; return t.cost <= CAP; };
-  for (const c of candidates) if (consider(byTrim(c))) { picked = cheapest; break; }
-  if (!picked) for (const c of candidates) if (consider(byRebalance(c))) { picked = cheapest; break; }
+  const tryAll = (build, need) => { for (const c of candidates) { const t = build(c); if ((!need || varied(t.week)) && consider(t)) return t; } return null; };
+  picked = tryAll(byTrim, true) || tryAll(byRebalance, true) || tryAll(byTrim, false) || tryAll(byRebalance, false);
   if (!picked) picked = cheapest;
   return { plan: picked.week, changed: picked.tpl.id !== cur?.id };
 }
@@ -179,7 +201,7 @@ for (let i = 0; i < N; i++) {
     if (r.changed && !r.plan[di2].meals.some((m) => m.slot === slot)) bad("swap vanished", `${day} ${slot}`);
     if (day === "Fri" && r.changed) pinnedSwaps++;
     // The swapped day's pin is deliberately released; every OTHER pin must hold.
-    checkWeek(r.plan, `after swap ${day} ${slot}`, livePins.filter((p) => !(p.day === day && p.slot === slot)));
+    checkWeek(r.plan, `after swap ${day} ${slot}`, livePins.filter((p) => !(p.day === day && p.slot === slot)), OUT.filter((o) => !(o.day === day && o.slot === slot)));
   }
 }
 
@@ -190,6 +212,10 @@ console.log(`swaps applied ${swaps}, no-ops ${noops}, pinned-day swaps honoured 
 const q = (a, p) => [...a].sort((x, y) => x - y)[Math.floor(p * (a.length - 1))];
 const mean = (a) => (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0);
 console.log(`cap £${CAP}${pricing.regular ? " at shelf prices" : ""} | avg ${mean(kcals)} kcal (target ${tg.targetKcal}), ${mean(proteins)}g protein (target ${tg.protein}) | burger nights/wk avg ${(burgers.reduce((x, y) => x + y, 0) / burgers.length).toFixed(1)}`);
+console.log(`eating out: ${OUT.map((o) => `${o.day} ${o.slot}`).join(", ") || "none"} -> ${21 - OUT.length} planned meals`);
+const pct = (b) => `${b.n ? Math.round(100 * b.hit / b.n) : 0}% of ${b.n} days on target, avg ${b.n ? Math.round(b.kcal / b.n) : 0} kcal / ${b.n ? Math.round(b.protein / b.n) : 0}g`;
+console.log(`fully planned days: ${pct(fullDays)} (target ${tg.targetKcal} / ${tg.protein}g)`);
+if (outDays.n) console.log(`days with a meal out: ${pct(outDays)} (of the reduced target)`);
 console.log(`weekly cost median £${q(weeklies, .5)} (max £${q(weeklies, 1)}) | till median £${q(tills, .5)} (max £${q(tills, 1)})`);
 const keys = Object.keys(fails);
 if (!keys.length) {

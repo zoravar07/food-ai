@@ -110,9 +110,25 @@ import { iso } from "./weeks.js";
 // ---------- Profile (editable settings) ----------
 export const DEFAULT_PROFILE = {
   age: 19, height_cm: 185, weight_kg: 72.5, sex: "male",
-  training_days: 5, goal: "mild_cut", budget_cap: 65,
+  training_days: 5, goal: "mild_cut", budget_cap: 68,
   meals_per_day: 4, max_cook_minutes: 30, dislikes: ["corn"], notes: "",
 };
+
+// Settings that need a profile column the database may not have yet
+// (eat_out, hob_overrides). They're always kept on this device, and in the
+// profile row too once the column exists; the row wins when it has a value.
+export const DEFAULT_EAT_OUT = ["Sat Dinner", "Wed Lunch"];
+const PREFS = "hv-prefs";
+function localPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREFS) || "{}"); } catch { return {}; }
+}
+export function prefFrom(profile, key, fallback) {
+  return profile?.[key] ?? localPrefs()[key] ?? fallback;
+}
+export async function savePref(key, value) {
+  try { localStorage.setItem(PREFS, JSON.stringify({ ...localPrefs(), [key]: value })); } catch {}
+  try { await saveProfile({ [key]: value }); } catch {}   // column not added yet: device copy stands
+}
 
 export async function getProfile() {
   if (!supabase) return memory.profile || DEFAULT_PROFILE;

@@ -258,3 +258,9 @@ begin
       'owner access', tbl);
   end loop;
 end $$;
+
+-- v8 (Nov 2026): eating-out slots and hob corrections. No defaults on purpose:
+-- until a value is saved here the app uses what's stored on his phone, and a
+-- default would override that.
+alter table public.profile add column if not exists eat_out text[];
+alter table public.profile add column if not exists hob_overrides jsonb;

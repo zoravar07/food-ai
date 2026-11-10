@@ -1,4 +1,27 @@
 // Detailed recipes — written so you can actually follow them without guessing.
+
+// Hob settings for his 1-9 induction hob. These are estimates, not measured
+// on his hob: induction ranges differ by make and pan. A step writes {key}
+// where a setting goes, and the recipe page shows the number with a button to
+// correct it. A correction is stored per technique, so fixing "browning mince"
+// once fixes it in every recipe that browns mince.
+export const HOB = {
+  boil: { label: "Bringing pasta water to the boil", level: 9 },
+  pasta: { label: "Keeping pasta at a rolling boil", level: 7 },
+  stirfry: { label: "Stir-frying rice", level: 9 },
+  mince: { label: "Browning mince", level: 8 },
+  strips: { label: "Frying chicken strips or cubes", level: 7 },
+  fillet: { label: "Frying a whole or butterflied chicken breast", level: 6 },
+  burger: { label: "Frying burgers", level: 6 },
+  spinach: { label: "Cooking the water out of frozen spinach", level: 6 },
+  eggs_fry: { label: "Frying eggs", level: 5 },
+  bun: { label: "Toasting a bun in the pan", level: 5 },
+  naan: { label: "Warming naan in a dry pan", level: 5 },
+  glaze: { label: "Glazing with teriyaki", level: 4 },
+  simmer: { label: "Simmering a sauce", level: 3 },
+  eggs_soft: { label: "Soft scrambled eggs", level: 3 },
+};
+
 export const recipes = {
   greek_bowl: {
     blurb: "Thirty seconds of effort, 40g of protein. The oats stirred in make it filling enough to actually last until lunch.",
@@ -90,9 +113,9 @@ export const recipes = {
     blurb: "Sticky, savoury, and on the table in fifteen.",
     steps: [
       "Slice the chicken breast into strips so it cooks fast and evenly.",
-      "Fry with a spray of oil on high 5-6 minutes until golden.",
+      "Pan on {strips} for a minute, spray of oil, chicken in. 5 to 6 minutes, turning once, until golden.",
       "Frozen broccoli and edamame in a covered bowl with a splash of water, 4 minutes in the microwave. Then the rice pouch, 2 minutes.",
-      "Teriyaki into the chicken pan for the last minute until glossy. Serve over the rice.",
+      "Hob down to {glaze}. Teriyaki into the chicken pan and toss for the last minute until glossy. Serve over the rice.",
     ],
     tip: "Add the sauce at the end. Too early and the sugar burns before the chicken's cooked.",
   },
@@ -123,19 +146,19 @@ export const recipes = {
     blurb: "Microwave rice is better for this than fresh: it's already dry.",
     steps: [
       "Squeeze the rice pouch to break it up. Don't microwave it.",
-      "Slice the chicken, fry on high heat 5 minutes until golden. Push to one side of the pan.",
-      "Crack the eggs into the empty side, scramble quickly, then mix through.",
+      "Pan on {strips} for a minute. Sliced chicken in, 5 minutes until golden, then push it to one side.",
+      "Crack the eggs into the empty side and scramble for a minute, then mix through.",
       "Frozen peas, edamame and spinach straight in, 2 minutes.",
-      "Add the rice and stir-fry 3 minutes on the highest heat. Soy sauce if you have it.",
+      "Turn it up to {stirfry}. Rice in and stir-fry 3 minutes, keeping it moving. Soy sauce if you have it.",
     ],
     tip: "Highest heat the whole way. Low heat steams it and it goes claggy.",
   },
   mince_pasta: {
     blurb: "A quick ragu from a jar, better than it has any right to be.",
     steps: [
-      "Pasta water on to boil, salt it well.",
-      "Brown the mince in a hot pan. Don't stir too much, let it catch and go crusty.",
-      "Pour in the jar of sauce and simmer 10 minutes while the pasta cooks.",
+      "Kettle on. Boiled water into a pan on {boil} with a good pinch of salt. Once it's bubbling, pasta in and down to {pasta} for the time on the bag (rigatoni is usually 11 to 12 minutes).",
+      "Second pan on {mince} for a minute. Mince in, leave it 2 minutes to catch before stirring, about 5 minutes in all.",
+      "Jar of sauce in, down to {simmer}, 10 minutes while the pasta cooks.",
       "Frozen spinach into the sauce for the last 3 minutes.",
       "Save a mug of pasta water, drain, and toss the pasta through the sauce with a splash of it.",
     ],
@@ -189,9 +212,9 @@ export const recipes = {
     blurb: "Friday burger. Shop patties and a brioche bun, wedges from the diced sweet potato.",
     steps: [
       "Tip the diced sweet potato onto a tray, a few sprays of oil, salt and paprika. Air fryer 18 minutes at 200C, or oven 25, shaking halfway.",
-      "Get a pan properly hot. Burgers in, 5 minutes a side. Don't press them with the spatula, that squeezes the juice out.",
-      "Halve the bun and toast it cut-side down in the same pan for the last minute.",
-      "Rest the burger 2 minutes, then build: guacamole on the bottom half, burger, lid.",
+      "With 12 minutes left on the wedges: pan on {burger} for a minute, burgers in, 5 minutes a side. Don't press them, that squeezes the juice out.",
+      "Burgers out to rest 2 minutes. Hob down to {bun}, bun cut-side down in the same pan, about a minute.",
+      "Build: guacamole on the bottom half, burger, lid.",
     ],
     tip: "A toasted bun doesn't go soggy under the guac. It's the minute that makes it taste like a restaurant burger.",
   },
@@ -220,10 +243,10 @@ export const recipes = {
   chicken_pasta: {
     blurb: "Creamy without cream. Twenty minutes, one pan and a pot.",
     steps: [
-      "Rigatoni on in well-salted water. Frozen peas and spinach go in the same pot for the last 2 minutes.",
-      "Slice and fry the chicken until golden, 6 minutes.",
-      "Save a mug of pasta water, then drain the pasta and peas.",
-      "Take the pan OFF the heat and wait 30 seconds. Then stir in the yoghurt with a splash of pasta water. Straight into a hot pan and it splits into grainy lumps. Off the heat it goes silky.",
+      "Kettle on. Boiled water into a pan on {boil}, salt it well. Once it's bubbling, rigatoni in and down to {pasta}. Frozen peas and spinach go in the same pot for the last 2 minutes.",
+      "Second pan on {strips} for a minute, spray of oil. Sliced chicken in, 6 minutes, turning once, until golden.",
+      "Save a mug of pasta water, then drain the pasta and veg.",
+      "Turn the chicken pan's ring off and wait 30 seconds. Then stir in the yoghurt with a splash of pasta water. Into a hot pan it splits into grainy lumps; off the heat it goes silky.",
       "Toss the pasta through, lots of black pepper.",
     ],
     tip: "Cooking the veg in the pasta water means one less thing to wash up.",
@@ -273,9 +296,9 @@ export const recipes = {
     blurb: "Eight minutes. Eggs, greens and proper toast.",
     steps: [
       "Sourdough in the toaster.",
-      "Frozen spinach in the pan on medium until the water cooks off, 2 minutes.",
-      "Whisk the eggs with the milk and a pinch of salt, pour in, heat to low, fold slowly until just set.",
-      "Onto the toast.",
+      "Frozen spinach in a non-stick pan on {spinach}, stirring, about 2 minutes until the water has cooked off. Tip it out onto the toast.",
+      "Whisk the eggs with the milk and a pinch of salt. Turn the hob down to {eggs_soft} and pour the eggs into the same pan. Leave them 20 seconds, then fold slowly from the edges every 15 seconds, 2 to 3 minutes in all.",
+      "Off the heat while they still look a little wet, and onto the toast.",
     ],
     tip: "Take the eggs off while they still look slightly wet. They finish on the plate.",
   },
@@ -292,7 +315,7 @@ export const recipes = {
     blurb: "A Nando's-style sandwich. Twelve minutes, most of it the chicken cooking.",
     steps: [
       "Slice the chicken breast in half horizontally so it cooks fast. Rub with the seasoning.",
-      "Hot pan with a spray of oil, 4 minutes a side.",
+      "Pan on {fillet} for a minute, spray of oil. Chicken in, 4 minutes a side. Cut into the thickest part: no pink.",
       "Toast the sourdough. Guacamole on one slice, a handful of spinach (thawed, squeezed) on the other.",
       "Chicken in, peri-peri sauce over, close it.",
     ],
@@ -302,7 +325,7 @@ export const recipes = {
     blurb: "Eight minutes. Protein from the eggs, fibre from the chickpeas.",
     steps: [
       "Drain and rinse the chickpeas, then mash roughly with a fork and the guacamole.",
-      "Fry or scramble the eggs.",
+      "Pan on {eggs_fry}, spray of oil, eggs in. About 3 minutes, until the whites are set.",
       "Toast the sourdough, chickpeas on, eggs on top, peri-peri sauce over.",
     ],
     tip: "Leave the chickpeas chunky. Mashed smooth it turns into paste.",
@@ -316,7 +339,7 @@ export const recipes = {
     blurb: "Nando's at home for a fraction of the price.",
     steps: [
       "Slice the chicken into strips and toss with the rub and a spray of oil.",
-      "Hot pan, 6–7 minutes, turning once, until charred at the edges.",
+      "Pan on {strips} for a minute to heat (induction gets there fast). Chicken in and leave it 3 minutes, turn, 3 more. Cut the thickest strip: no pink.",
       "Microwave the rice pouch, 2 minutes. Drain and rinse the kidney beans and stir them through.",
       "Rice and beans in the bowl, chicken on top, peri-peri sauce over, guacamole on the side.",
     ],
@@ -325,10 +348,10 @@ export const recipes = {
   tikka_naan: {
     blurb: "Takeaway curry in 22 minutes, scooped up with naan. The chickpeas stretch it and add fibre.",
     steps: [
-      "Cube the chicken and brown it in a hot pan with a spray of oil, 5 minutes.",
-      "Pour in the sauce, the drained chickpeas and a splash of water, and simmer 12 minutes.",
+      "Pan on {strips} for a minute, spray of oil. Cubed chicken in, 5 minutes, turning, until browned all over.",
+      "Pour in the sauce, the drained chickpeas and a splash of water. Down to {simmer}, lid on if you have one, 12 minutes.",
       "Stir the spinach through for the last minute until it wilts.",
-      "Warm the naan in the oven or a dry pan for 2 minutes.",
+      "Naan in a dry pan on {naan}, a minute a side, or 2 minutes in the oven.",
     ],
     tip: "Brown the chicken first, don't just simmer it raw in the sauce. That's where the flavour comes from.",
   },
@@ -350,8 +373,8 @@ export const recipes = {
   chilli_rice_lunch: {
     blurb: "A proper chilli in under 20 minutes.",
     steps: [
-      "Brown the mince in a hot pan with the rub.",
-      "Drain the kidney beans, tip them in with the pasta sauce and frozen spinach, simmer 10 minutes.",
+      "Pan on {mince} for a minute. Mince and rub in, break it up, then leave it 2 minutes to brown before you stir. About 5 minutes in all.",
+      "Drain the kidney beans and tip them in with the pasta sauce and frozen spinach. Down to {simmer}, 10 minutes, stirring now and then.",
       "Rice pouch, 2 minutes. Chilli over the top.",
     ],
     tip: "Let the mince catch and go brown before stirring. That colour is the flavour.",
@@ -413,9 +436,9 @@ export const recipes = {
   burger_peas: {
     blurb: "The quick burger night. Twelve minutes, no oven.",
     steps: [
-      "Hot pan, burger in, 5 minutes a side. Don't press it.",
+      "Pan on {burger} for a minute. Burger in, 5 minutes a side. Don't press it.",
       "Frozen peas in a covered bowl with a splash of water, 3 minutes in the microwave. Salt and pepper.",
-      "Toast the bun cut-side down in the burger pan for the last minute.",
+      "Burger out to rest. Hob down to {bun} and toast the bun cut-side down in the burger pan, about a minute.",
     ],
     tip: "Rest the burger 2 minutes before it goes in the bun.",
   },
@@ -423,7 +446,7 @@ export const recipes = {
     blurb: "A Nando's plate at home: chicken, wedges, greens.",
     steps: [
       "Diced sweet potato on a tray, spray of oil and salt. Air fryer 18 minutes at 200C.",
-      "Chicken rubbed with the seasoning, hot pan 6-7 minutes a side.",
+      "With 15 minutes left on the wedges: pan on {fillet} for a minute, rubbed chicken in, 6 to 7 minutes a side. A whole breast is thick, so cut into the middle to check: no pink.",
       "Frozen broccoli, covered, 4 minutes in the microwave.",
       "Peri-peri sauce over the chicken.",
     ],
@@ -432,18 +455,18 @@ export const recipes = {
   chilli_naan: {
     blurb: "Chilli, scooped up with naan instead of rice.",
     steps: [
-      "Brown the mince in a hot pan with the rub.",
-      "Drained kidney beans, the pasta sauce and frozen spinach in, simmer 10 minutes.",
-      "Naan in a dry pan or the oven, 2 minutes.",
+      "Pan on {mince} for a minute. Mince and rub in, break it up, then leave it 2 minutes to brown before stirring.",
+      "Drained kidney beans, the pasta sauce and frozen spinach in. Down to {simmer}, 10 minutes.",
+      "Naan in a dry pan on {naan}, a minute a side, or 2 minutes in the oven.",
     ],
     tip: "Let the mince catch and go brown before stirring.",
   },
   teriyaki_rice_dinner: {
     blurb: "Fifteen minutes, mostly waiting for the pan.",
     steps: [
-      "Chicken in strips, hot pan with a spray of oil, 6 minutes.",
+      "Chicken in strips. Pan on {strips} for a minute, spray of oil, chicken in, 6 minutes, turning once.",
       "Frozen broccoli covered in the microwave, 4 minutes. Then the rice pouch, 2 minutes.",
-      "Teriyaki into the chicken pan for the last minute until glossy.",
+      "Hob down to {glaze}, teriyaki into the chicken pan for the last minute until glossy.",
     ],
     tip: "Sauce in at the end. Too early and the sugar burns.",
   },

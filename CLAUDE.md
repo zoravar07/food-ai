@@ -20,7 +20,10 @@ Environment variables (`.env` locally, Vercel dashboard in production):
 19M, 185cm, ~72.5kg, trains 5x/week, wants a lean athletic build. Targets are
 derived, not hardcoded: ~2440 kcal, ~174g protein, high potassium, moderate sodium.
 Cooks fresh in a shared uni kitchen in London, ≤30 min, hates reheating leftovers.
-Budget is set in Settings (£68 works at current offers, £72 at shelf prices). Big foodie — lunches and dinners must
+Budget is set in Settings (£68 works at current offers, £72 at shelf prices).
+Cooks ~90% of meals and eats out 1-2 times a week, so the plan covers 19-20 of
+21 meals: the open slots are set in Settings (`eat_out`, default Sat dinner and
+Wed lunch). Induction hob, numbered 1-9. Big foodie — lunches and dinners must
 vary. Breakfast is the same granola bowl most days, by his choice.
 Shops on Ocado. Buys no fresh fruit or veg: frozen and tinned only. Often has
 no time to cook, so the library leans on assembly and microwave meals.
@@ -97,6 +100,12 @@ check `pins` and `blocked` survive it.
     Packs with `opened` days are bought again if uses spread wider than that.
     `fitsDay` is the check every pass that moves meals must use.
 11. At most `FRUIT_PER_WEEK` meals with fruit in them, across all slots.
+12. Eating-out slots (`options.out`, meal `eatOut: true`) stay open through every
+    pass: no swap, trim, rebalance or craving may fill one, and they beat a
+    standing rule for the same slot. That day's targets come from `dayTargets`,
+    which removes the share the missing meal normally carries.
+13. Swaps keep at least 3 different lunches and dinners when any affordable
+    option does; a swap that repeats a meal is the fallback, not the default.
 
 ## Validating changes
 
@@ -121,6 +130,26 @@ Today `npm run check` runs that matrix (default £68): `CAP=72`, `ANCHOR=2026-09
 `DISLIKES=corn,avocado` and `PRICES=regular` (shelf prices, offers ended) are
 the variants. 100+ iterations is the bar. Randomised generation hides bugs at low sample sizes —
 several issues here only appeared 3 times in 40 runs.
+
+## Things that broke the live app (Nov 2026), now guarded
+
+- A paused Supabase project answers token refreshes with 540, which auth-js
+  treated as a dead session and deleted. `authFetch` in store.js turns auth
+  5xx/408/429 into network errors. A daily Vercel cron (`api/keepalive.js`)
+  keeps the free project from pausing at all.
+- Root shows the sign-in form only when no session is saved on the device
+  (`hasSavedSession`). Saved-but-unreachable gets a retrying screen.
+- `boot()` must work out the week from the profile and shop history it has
+  just loaded, never from state: reading state there used the first render's
+  anchor and saved a new plan on most launches. A failed boot writes nothing.
+- The assistant has its own busy flag (`thinking`), so it can never grey out
+  the planner. Model chain and test results are in api/chat.js.
+
+## Hob settings
+
+Recipe steps write `{key}` where a heat setting goes; `HOB` in recipes.js has
+the label and starting level. These are estimates. His corrections live in
+`hob_overrides` and apply per technique across all recipes.
 
 ## Known state
 

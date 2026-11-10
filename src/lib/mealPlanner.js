@@ -103,6 +103,37 @@ export function fitsDay(week, di, slot, tpl) {
   return fruitCount(week) - (hasFruit(cur) ? 1 : 0) + 1 <= FRUIT_PER_WEEK;
 }
 
+/** A meal he's eating out for. It's a real slot on the plan so the day reads
+ *  honestly, but it has no ingredients, costs nothing, and no pass that
+ *  moves meals around will touch it. */
+export const EAT_OUT = { id: "eating_out", name: "Eating out", items: [], eatOut: true, time: 0, proteinAnchor: null, carbAnchor: null };
+
+/** What share of a day's calories and protein each meal carries, measured
+ *  over 210 generated days at £68. A day with dinner out aims for the rest of
+ *  the day's usual amount, not a full day squeezed into the other meals. */
+const OUT_SHARE = {
+  Breakfast: { kcal: 0.24, protein: 0.17 },
+  Lunch: { kcal: 0.32, protein: 0.33 },
+  Dinner: { kcal: 0.26, protein: 0.28 },
+};
+
+/** "Sat Dinner" -> { day: "Sat", slot: "Dinner" } */
+export function parseOut(list = []) {
+  return (list || []).map((x) => {
+    const [day, slot] = String(x).split(/[\s:]+/);
+    return day && slot ? { day, slot: slot.charAt(0).toUpperCase() + slot.slice(1).toLowerCase() } : null;
+  }).filter(Boolean);
+}
+
+/** The day's targets once any eaten-out meal is taken off. */
+export function dayTargets(targets, meals = []) {
+  const out = meals.filter((m) => m?.eatOut);
+  if (!out.length) return targets;
+  const k = out.reduce((a, m) => a + (OUT_SHARE[m.slot]?.kcal ?? 0.3), 0);
+  const p = out.reduce((a, m) => a + (OUT_SHARE[m.slot]?.protein ?? 0.3), 0);
+  return { ...targets, targetKcal: Math.round(targets.targetKcal * (1 - k)), protein: Math.round(targets.protein * (1 - p)) };
+}
+
 /** How many times a template may appear in a week. */
 const maxUses = (tpl) => tpl.max ?? 2;
 
@@ -218,7 +249,10 @@ function capMealCalories(meal) {
   return items;
 }
 
-function buildDayMeals(b, l, s, d, targets, dessert) {
+function buildDayMeals(b, l, s, d, fullTargets, dessert) {
+  const targets = dayTargets(fullTargets, [
+    b && { ...b, slot: "Breakfast" }, l && { ...l, slot: "Lunch" }, d && { ...d, slot: "Dinner" },
+  ]);
   const rawMeals = [
     { slot: "Breakfast", ...b, items: [...b.items] },
     { slot: "Lunch", ...l, items: [...l.items] },
@@ -285,11 +319,12 @@ function topUp(week, targets, budgetCap, leftovers = {}) {
   let runningWeek = week;
   return week.map((day, dayIdx) => {
     let meals = day.meals;
+    const dt = dayTargets(targets, meals);
     for (let pass = 0; pass < 16; pass++) {
       const tot = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
       // This used to stop at 92%, which is most of why weeks came in ~200
       // kcal short even with no budget limit at all.
-      if (tot.kcal >= targets.targetKcal * 0.98 && tot.protein >= targets.protein * 0.97) break;
+      if (tot.kcal >= dt.targetKcal * 0.98 && tot.protein >= dt.protein * 0.97) break;
 
       let bumped = false;
       const nextMeals = meals.map((m) => {
@@ -395,7 +430,7 @@ export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pin
   const candidates = [];
   out.forEach((day, dayIdx) => day.meals.forEach((m) => {
     if (!["Breakfast", "Lunch", "Snack", "Dinner"].includes(m.slot)) return;
-    if (isHeld(day.day, m.slot)) return;
+    if (isHeld(day.day, m.slot) || m.eatOut) return;
     candidates.push({ dayIdx, slot: m.slot, cost: templateCost(m.items) });
   }));
   candidates.sort((a, b) => b.cost - a.cost);
@@ -436,6 +471,7 @@ function packAwareRebalance(week, targets, budgetCap, { held = [], blocked = {},
       if (isHeld(day.day, slot)) return;
       const key = slot.toLowerCase();
       const cur = day.meals.find((m) => m.slot === slot);
+      if (cur?.eatOut) return;
       const counts = {};
       out.forEach((d) => { const id = d.meals.find((m) => m.slot === slot)?.id; if (id) counts[id] = (counts[id] || 0) + 1; });
       for (const tpl of templates[key] || []) {
@@ -443,7 +479,8 @@ function packAwareRebalance(week, targets, budgetCap, { held = [], blocked = {},
         if (!fitsDay(out, di, slot, tpl)) continue;
         const next = out.map((d, i) => (i !== di ? d : setMealOnDay(d, slot, tpl, targets)));
         if (slot === "Lunch" || slot === "Dinner") {
-          const distinct = new Set(next.map((d) => d.meals.find((m) => m.slot === slot)?.id)).size;
+          // A meal out isn't a dinner he cooks, so it doesn't count toward variety.
+          const distinct = new Set(next.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size;
           if (distinct < 3) continue;
         }
         const c = weekCost(next, leftovers);
@@ -466,6 +503,7 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], block
     current.forEach((day, dayIdx) => {
       day.meals.forEach((meal) => {
         if (meal.slot !== "Lunch" && meal.slot !== "Dinner") return;
+        if (meal.eatOut) return;
         // Never swap out a meal the user pinned via a standing rule.
         if (pins.some((p) => p.day === day.day && p.slot === meal.slot)) return;
         const cost = templateCost(meal.items);
@@ -562,7 +600,8 @@ function ensureFavourites(week, targets, options = {}, placed = []) {
     const tpl = templates[slotKey].find((t) => t.id === id);
     const slot = slotKey.charAt(0).toUpperCase() + slotKey.slice(1);
     // Don't displace a standing rule — those outrank a passing craving.
-    const free = out.map((_, i) => i).filter((i) => !pins.some((p) => p.day === out[i].day && p.slot === slot) && fitsDay(out, i, slot, tpl));
+    const free = out.map((_, i) => i).filter((i) => !pins.some((p) => p.day === out[i].day && p.slot === slot)
+      && !out[i].meals.find((m) => m.slot === slot)?.eatOut && fitsDay(out, i, slot, tpl));
     if (!free.length) continue;
     const at = free[Math.floor(Math.random() * free.length)];
     out = out.map((d, i) => (i !== at ? d : setMealOnDay(d, slot, tpl, targets)));
@@ -575,6 +614,8 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
   // The week's day order comes from the anchor: a Tuesday shop gives Tue…Mon.
   const { favour = [], blocked = {}, leftovers = {}, days: dayOrder = DAY_NAMES } = options;
   const pins = usablePins(options.pins, blocked);
+  const outSlots = options.out || [];
+  const isOut = (day, slot) => outSlots.some((o) => o.day === day && o.slot === slot);
   const used = { breakfast: {}, lunch: {}, dinner: {}, snack: {}, dessert: {} };
   const expensiveCount = {};
   const days = dayOrder;
@@ -605,6 +646,7 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
   const rawWeek = days.map((day, dayIndex) => {
     const choose = (slot) => {
       const k = slot.toLowerCase();
+      if (isOut(day, slot)) return EAT_OUT;
       if (pinnedTpl(day, slot)) return pinnedTpl(day, slot); // already counted above
       const ok = (t) => !lateOn(t, dayIndex) && (!hasFruit(t) || fruitUsed < FRUIT_PER_WEEK);
       const tpl = pickNonRepeating(templates[k], used[k], expensiveCount, basket, blocked[k] || [], ok, dayIndex);
@@ -710,9 +752,10 @@ function scoreWeek(week, targets, budgetCap, favour = [], leftovers = {}) {
   if (cost > budgetCap) score += (cost - budgetCap) * 200;
 
   week.forEach((d) => {
-    score += Math.abs(d.totals.kcal - targets.targetKcal) * 0.05;
+    const dt = dayTargets(targets, d.meals);
+    score += Math.abs(d.totals.kcal - dt.targetKcal) * 0.05;
     // Missing protein matters much more than slightly exceeding it.
-    const pDiff = targets.protein - d.totals.protein;
+    const pDiff = dt.protein - d.totals.protein;
     score += pDiff > 0 ? pDiff * 1.5 : Math.abs(pDiff) * 0.3;
   });
 
@@ -838,18 +881,28 @@ function cheapestWeek(targets, budgetCap, options = {}) {
   // No fruit at all here: it's the floor of what a week costs, and fruit is
   // optional. Each day takes the cheapest meal that's still fresh by then.
   const noFruit = (t) => !hasFruit(t);
+  // Cheapest still has to be a week he'd eat: no lunch or dinner more than
+  // twice, which leaves at least 3 different ones. Without this the floor
+  // week was one dinner six nights running.
+  const uses = {};
   const week = dayOrder.map((day, di) => {
     const fresh = (t) => noFruit(t) && !lateOn(t, di);
-    const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner"].map((sl) => [sl, cheapestTemplate(sl, blocked, null, fresh)]));
+    const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner"].map((sl) => {
+      const limit = (t) => (uses[`${sl}:${t.id}`] || 0) < (sl === "lunch" || sl === "dinner" ? Math.min(2, maxUses(t)) : maxUses(t));
+      const tpl = cheapestTemplate(sl, blocked, null, (t) => fresh(t) && limit(t)) || cheapestTemplate(sl, blocked, null, fresh);
+      if (tpl) uses[`${sl}:${tpl.id}`] = (uses[`${sl}:${tpl.id}`] || 0) + 1;
+      return [sl, tpl];
+    }));
     const pinned = (slot) => {
       const pin = pins.find((p) => p.day === day && p.slot === slot);
       return pin ? (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null : null;
     };
+    const out = (slot) => ((options.out || []).some((o) => o.day === day && o.slot === slot) ? EAT_OUT : null);
     const { meals, totals } = buildDayMeals(
-      pinned("Breakfast") || pick.breakfast,
-      pinned("Lunch") || pick.lunch,
+      out("Breakfast") || pinned("Breakfast") || pick.breakfast,
+      out("Lunch") || pinned("Lunch") || pick.lunch,
       pinned("Snack") || pick.snack,
-      pinned("Dinner") || pick.dinner,
+      out("Dinner") || pinned("Dinner") || pick.dinner,
       targets,
       pinned("Dessert") || null
     );
@@ -873,6 +926,13 @@ export function appliedRules(week, matched = []) {
 }
 
 export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {}) {
+  // Eating out beats a standing rule for that slot: he isn't home to cook it.
+  // Only slots that exist on the plan's days count.
+  if (options.out?.length) {
+    const days = options.days || DAY_NAMES;
+    const out = options.out.filter((o) => days.includes(o.day) && ["Breakfast", "Lunch", "Dinner"].includes(o.slot));
+    options = { ...options, out, pins: (options.pins || []).filter((p) => !out.some((o) => o.day === p.day && o.slot === p.slot)) };
+  }
   // Pins narrow the search space, so allow more tries to find an affordable fit.
   if (options.pins?.length) attempts = Math.max(attempts, 120);
   const leftovers = options.leftovers || {};

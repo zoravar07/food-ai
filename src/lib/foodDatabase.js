@@ -29,7 +29,7 @@ export const pantry = [
 
 export const carbs = [
   // Quantities are cooked weight, which is how a microwave pouch is sold (250g).
-  { id: "rice", name: "Microwave basmati rice", kcal: 155, protein: 3.2, carbs: 31, fat: 1.9, fibre: 0.6, potassium: 35, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 270 },
+  { id: "rice", name: "Microwave basmati rice", kcal: 143, protein: 2.9, carbs: 28.2, fat: 1.9, fibre: 0.7, potassium: 35, sodium: 10, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 270 },
   { id: "potato", name: "Potato", kcal: 87, protein: 2, carbs: 20, fat: 0.1, fibre: 2.2, potassium: 425, storageDays: { fridge: 21, freezer: 0 } },
   { id: "sweet_potato", name: "Sweet potato", kcal: 86, protein: 1.6, carbs: 20, fat: 0.1, fibre: 3, potassium: 337, storageDays: { fridge: 14, freezer: 0 } },
   { id: "pasta", name: "Rigatoni", kcal: 131, protein: 5, carbs: 25, fat: 1.1, fibre: 1.8, potassium: 44, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 730 },
@@ -102,9 +102,9 @@ export const sauces = [
 // only; these have macros and prices so they show up on the shop.
 export const cookingSauces = [
   { id: "tikka_sauce", name: "Tikka masala sauce", kcal: 71, protein: 1.6, carbs: 8.3, fat: 3.2, fibre: 1.5, potassium: 200, storageDays: { fridge: 3, freezer: 0 } },
-  { id: "pasta_sauce", name: "Tomato pasta sauce", kcal: 41, protein: 1.5, carbs: 6.8, fat: 0.5, fibre: 1.5, potassium: 300, storageDays: { fridge: 5, freezer: 0 } },
-  { id: "teriyaki_sauce", name: "Teriyaki sauce", kcal: 110, protein: 3, carbs: 22, fat: 1, storageDays: { fridge: 28, freezer: 0 }, pantryLife: 365 },
-  { id: "peri_sauce", name: "Peri-peri sauce", kcal: 72, protein: 0.9, carbs: 4.4, fat: 5.6, storageDays: { fridge: 42, freezer: 0 }, pantryLife: 365 },
+  { id: "pasta_sauce", name: "Tomato pasta sauce", kcal: 46, protein: 1.4, carbs: 7.9, fat: 0.6, fibre: 1.4, potassium: 300, sodium: 268, storageDays: { fridge: 5, freezer: 0 } },
+  { id: "teriyaki_sauce", name: "Teriyaki sauce", kcal: 227, protein: 4.5, carbs: 45, fat: 2.0, sodium: 2680, storageDays: { fridge: 28, freezer: 0 }, pantryLife: 365 },
+  { id: "peri_sauce", name: "Peri-peri sauce", kcal: 49, protein: 0.6, carbs: 1.4, fat: 4.2, sodium: 2080, storageDays: { fridge: 42, freezer: 0 }, pantryLife: 365 },
   { id: "peri_rub", name: "Peri-peri seasoning rub", kcal: 250, protein: 8, carbs: 40, fat: 5, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
 ];
 
@@ -344,7 +344,7 @@ export const products = {
   // Innocent has been half price for his last four orders; £4.30 is the shelf
   // price, so a week costs about £2 more when the offer ends.
   // Opened, a carton keeps about 3 days (the usual label; not checked).
-  coconut_water: { default: 0, opened: 3, packs: [
+  coconut_water: { default: 0, opened: 2, packs: [
     { name: "Innocent Coconut Water 1L", size: 1000, price: 2.15, regular: 4.30, label: "1L carton" },
     { name: "Vita Coco Coconut Water 1L", size: 1000, price: 4.00, label: "1L carton" },
   ] },
@@ -355,7 +355,7 @@ export const products = {
   burger_bun: { default: 0, life: 7, freezable: true, packs: [{ name: "Warburtons 4 Seeded Brioche Burger Buns", size: 4, price: 2.00, regular: 2.85, label: "pack of 4" }] },
   // A different brand each time, £1.00–£1.55. 2–3 weeks a bag.
   pasta: { default: 0, lastsWeeks: 2.5, packs: [{ name: "Rigatoni 500g (any brand)", size: 500, price: 1.28, label: "500g bag" }] },
-  rice: { default: 0, checked: false, packs: [{ name: "Ocado Microwave Pure Basmati Rice", size: 250, price: 1.00, label: "250g pouch" }] },
+  rice: { default: 0, packs: [{ name: "Tilda Microwave Pure Basmati Rice", size: 250, price: 1.00, label: "250g pouch" }] },
   // Ocado guarantees 3 days; he finds a loaf lasts about 5. Not marked
   // freezable on purpose: he wants it eaten fresh, not a loaf spread over
   // ten days.
@@ -367,9 +367,9 @@ export const products = {
   // (3 days is the usual label, not checked against these jars), so those
   // are bought per use.
   tikka_sauce:    { default: 0, opened: 3, packs: [{ name: "Patak's Tikka Masala Curry Sauce", size: 450, price: 2.65, label: "450g jar" }] },
-  pasta_sauce:    { default: 0, checked: false, opened: 3, packs: [{ name: "Dolmio Bolognese Smooth Tomato Sauce", size: 450, price: 2.60, label: "450g jar" }] },
-  teriyaki_sauce: { default: 0, checked: false, lastsWeeks: 1.5, packs: [{ name: "Kikkoman Toasted Sesame Teriyaki Sauce", size: 250, price: 3.35, label: "250ml bottle" }] },
-  peri_sauce:     { default: 0, checked: false, lastsWeeks: 1.5, packs: [{ name: "Nando's Peri-Peri Sauce Medium", size: 500, price: 4.50, label: "500g bottle" }] },
+  pasta_sauce:    { default: 0, opened: 3, packs: [{ name: "Dolmio Bolognese Smooth Tomato Sauce", size: 450, price: 2.60, label: "450g jar" }] },
+  teriyaki_sauce: { default: 0, lastsWeeks: 1.5, packs: [{ name: "Kikkoman Toasted Sesame Teriyaki Sauce", size: 250, price: 3.65, label: "250ml bottle" }] },
+  peri_sauce:     { default: 0, lastsWeeks: 1.5, packs: [{ name: "Nando's Peri-Peri Sauce Medium", size: 500, price: 4.50, label: "500g bottle" }] },
 };
 
 /** Plan at shelf prices instead of current offers. Used by the validation
