@@ -110,9 +110,25 @@ import { iso } from "./weeks.js";
 // ---------- Profile (editable settings) ----------
 export const DEFAULT_PROFILE = {
   age: 19, height_cm: 185, weight_kg: 72.5, sex: "male",
-  training_days: 5, goal: "mild_cut", budget_cap: 65,
+  training_days: 5, goal: "mild_cut", budget_cap: 68,
   meals_per_day: 4, max_cook_minutes: 30, dislikes: ["corn"], notes: "",
 };
+
+// Settings that need a profile column the database may not have yet
+// (eat_out, hob_overrides). They're always kept on this device, and in the
+// profile row too once the column exists; the row wins when it has a value.
+export const DEFAULT_EAT_OUT = ["Sat Dinner", "Wed Lunch"];
+const PREFS = "hv-prefs";
+function localPrefs() {
+  try { return JSON.parse(localStorage.getItem(PREFS) || "{}"); } catch { return {}; }
+}
+export function prefFrom(profile, key, fallback) {
+  return profile?.[key] ?? localPrefs()[key] ?? fallback;
+}
+export async function savePref(key, value) {
+  try { localStorage.setItem(PREFS, JSON.stringify({ ...localPrefs(), [key]: value })); } catch {}
+  try { await saveProfile({ [key]: value }); } catch {}   // column not added yet: device copy stands
+}
 
 export async function getProfile() {
   if (!supabase) return memory.profile || DEFAULT_PROFILE;
@@ -488,14 +504,15 @@ export async function removePantryItem(ingredientId) {
   if (error) throw error;
 }
 
-/** Deduct what a cooked meal used */
-/** Deduct what a cooked meal used. Fresh items only — tracking how much cumin
- *  is left is not worth anyone's time, so cupboard staples are left alone. */
+/** Deduct what a cooked meal used. Cupboard staples run down too: they used
+ *  to be skipped, so a bag of rigatoni stayed at 500g in the pantry forever
+ *  and the list never asked for another one. A part-used pack now carries
+ *  into next week at what's genuinely left. */
 export async function consumeIngredients(items) {
   const pantry = await getPantry();
   for (const [id, qty] of items) {
     const row = pantry.find((p) => p.ingredient_id === id);
-    if (!row || row.category === "cupboard") continue;
+    if (!row) continue;
     const next = Math.max(0, Number(row.quantity) - qty);
     // Deliberately does NOT touch `low`. Cooking produces an accurate remainder,
     // and getLeftovers treats a low row as if it were empty — so auto-flagging
@@ -513,7 +530,7 @@ export async function restoreIngredients(items) {
   const pantry = await getPantry();
   for (const [id, qty] of items) {
     const row = pantry.find((p) => p.ingredient_id === id);
-    if (!row || row.category === "cupboard") continue;
+    if (!row) continue;
     const next = Number(row.quantity) + qty;
     // Same rule in reverse: putting stock back doesn't overrule what he said.
     await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low });

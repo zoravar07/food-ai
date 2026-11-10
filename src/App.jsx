@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules } from "./lib/mealPlanner.js";
+import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules, fitsDay, parseOut } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
-import { recipes } from "./lib/recipes.js";
+import { recipes, HOB } from "./lib/recipes.js";
 import { askAssistant } from "./lib/assistant.js";
 import * as store from "./lib/store.js";
 import { DAY_NAMES, DAY_NAMES_LONG, iso, weekStartFor, dateForDay, weekLabel,
@@ -15,7 +15,7 @@ const t = {
   line: "#2C3644", text: "#F0F3F7", soft: "#8D96A6", dim: "#5F6879",
   teal: "#4DD4B8", amber: "#F5A962", peri: "#7C9CFF", coral: "#FF7A7A", violet: "#B98CFF",
 };
-const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", cupboard: "Cupboard" };
+const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", frozen: "Frozen", cupboard: "Cupboard" };
 const TABS = [
   { id: "groceries", label: "Shop", icon: "🛒" },
   { id: "pantry", label: "Pantry", icon: "🥫" },
@@ -62,8 +62,43 @@ function MacroBar({ label, value, target, unit, color }) {
 }
 
 /* ---------------- recipe page ---------------- */
-function RecipePage({ meal, onBack }) {
+/** A hob setting inside a recipe step. Tapping it opens a small editor;
+ *  saving stores the corrected number for that technique everywhere. */
+function HobSetting({ k, hob, onHob }) {
+  const def = HOB[k];
+  const level = hob[k] ?? def.level;
+  const [open, setOpen] = useState(false);
+  const [v, setV] = useState(level);
+  const changed = hob[k] !== undefined && hob[k] !== def.level;
+  return (
+    <span style={{ display: "inline" }}>
+      <button onClick={() => { setV(level); setOpen(!open); }}
+        style={{ display: "inline", border: `1px solid ${changed ? t.teal : t.amber}`, background: changed ? "rgba(77,212,184,.12)" : "rgba(245,169,98,.12)", color: changed ? t.teal : t.amber, borderRadius: 7, padding: "0 6px", fontSize: 14.5, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>
+        {level}/9
+      </button>
+      {open && (
+        <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", background: t.card, border: `1px solid ${t.line}`, borderRadius: 12, padding: "10px 12px", margin: "8px 0" }}>
+          <span style={{ fontSize: 13, color: t.soft, flexBasis: "100%" }}>{def.label}. My starting guess was {def.level}/9.</span>
+          <Btn size="sm" kind="solid" onClick={() => setV(Math.max(1, v - 1))}>−</Btn>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 17, fontWeight: 700, minWidth: 34, textAlign: "center" }}>{v}/9</span>
+          <Btn size="sm" kind="solid" onClick={() => setV(Math.min(9, v + 1))}>+</Btn>
+          <Btn size="sm" kind="primary" onClick={() => { onHob(k, v); setOpen(false); }}>Use {v} from now on</Btn>
+          {changed && <Btn size="sm" kind="ghost" onClick={() => { onHob(k, null); setOpen(false); }}>Reset</Btn>}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** A recipe step with its {hob} markers turned into settings. */
+function Step({ text, hob, onHob }) {
+  const parts = text.split(/\{(\w+)\}/);
+  return parts.map((p, i) => (i % 2 && HOB[p] ? <HobSetting key={i} k={p} hob={hob} onHob={onHob} /> : <React.Fragment key={i}>{p}</React.Fragment>));
+}
+
+function RecipePage({ meal, onBack, hob = {}, onHob = () => {} }) {
   const r = recipes[meal.id];
+  const usesHob = (r?.steps || []).some((s) => /\{\w+\}/.test(s));
   const mac = analyseDay([meal], allIngredients);
   return (
     <div style={{ position: "fixed", inset: 0, background: t.bg, zIndex: 200, overflowY: "auto", WebkitOverflowScrolling: "touch" }}>
@@ -110,11 +145,16 @@ function RecipePage({ meal, onBack }) {
         {r?.steps && (
           <>
             <h2 style={{ fontSize: 12, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".09em", margin: "0 0 14px" }}>Method</h2>
+            {usesHob && (
+              <div style={{ fontSize: 13, color: t.soft, lineHeight: 1.5, margin: "-4px 0 16px" }}>
+                Hob numbers are for a 1–9 induction hob. They're my estimates, not tested on yours, so treat them as a starting point. If one's too hot or too gentle, tap it and change it; the new number is used in every recipe with that step.
+              </div>
+            )}
             <div style={{ marginBottom: 26 }}>
               {r.steps.map((s, i) => (
                 <div key={i} style={{ display: "flex", gap: 14, marginBottom: 16 }}>
                   <div style={{ flexShrink: 0, width: 28, height: 28, borderRadius: 9, background: t.cardHi, color: t.peri, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, fontFamily: "'JetBrains Mono',monospace" }}>{i + 1}</div>
-                  <div style={{ fontSize: 15.5, lineHeight: 1.62, paddingTop: 3 }}>{s}</div>
+                  <div style={{ fontSize: 15.5, lineHeight: 1.62, paddingTop: 3 }}><Step text={s} hob={hob} onHob={onHob} /></div>
                 </div>
               ))}
             </div>
@@ -134,6 +174,26 @@ function RecipePage({ meal, onBack }) {
 
 /* ---------------- meal card ---------------- */
 function MealCard({ meal, log, onOpen, onMark, onReplace, readOnly, missing = [] }) {
+  if (meal.eatOut) {
+    // Left open on purpose: nothing was bought for it. Logging what he had
+    // is the useful thing here, or putting a meal back if plans change.
+    const logged = log?.status === "ate_out";
+    return (
+      <div style={{ background: "transparent", border: `1px dashed ${t.line}`, borderRadius: 16, padding: "14px 16px 12px" }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".07em", marginBottom: 3 }}>{meal.slot}</div>
+        <div style={{ fontSize: 16.5, fontWeight: 600, color: logged ? t.text : t.soft }}>{logged && log?.meal_name ? log.meal_name : "Eating out"}</div>
+        <div style={{ fontSize: 12.5, color: t.dim, marginTop: 4 }}>
+          {logged ? `${Math.round(log?.kcal || 0)} kcal · ${Math.round(log?.protein || 0)}g protein` : "Nothing bought for this one. Log what you had when you're back."}
+        </div>
+        {!readOnly && (
+          <div style={{ display: "flex", gap: 6, marginTop: 11 }}>
+            <Btn size="sm" kind="solid" style={{ flex: 1, padding: "8px 6px", color: t.amber }} onClick={() => onMark(meal, "ate_out")}>{logged ? "Edit" : "Log what I had"}</Btn>
+            <Btn size="sm" kind="solid" style={{ flex: 1, padding: "8px 6px", color: t.violet }} onClick={() => onReplace(meal)}>Cook instead</Btn>
+          </div>
+        )}
+      </div>
+    );
+  }
   const done = log?.status === "eaten", out = log?.status === "ate_out";
   const kcal = Math.round(out ? (log?.kcal || 0) : meal.kcal);
   const protein = Math.round(out ? (log?.protein || 0) : meal.protein);
@@ -237,6 +297,9 @@ function App({ session }) {
     firstShopDate: profile.first_shop_date,
   });
   const DAYS = daysFrom(anchor);              // e.g. a Tuesday shop -> Tue…Mon
+  const eatOut = store.prefFrom(profile, "eat_out", store.DEFAULT_EAT_OUT);
+  const hob = store.prefFrom(profile, "hob_overrides", {});
+  const DAY_ORDER_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const sinceShop = dayOffsetToday(anchor);   // <0 not started, 0-6 in plan, >6 overdue
   const preFirstShop = booted && shopped.length === 0;
   // Past the end of the plan he bought. The cycle advances when he shops, never
@@ -477,6 +540,7 @@ function App({ session }) {
     rules.filter((r) => r.kind === "standing").map((r) => r.text).sort(),
     [...(profile.dislikes || [])].sort(),
     profile.budget_cap,
+    [...store.prefFrom(profile, "eat_out", store.DEFAULT_EAT_OUT)].sort(),
   ]);
   useEffect(() => {
     if (!booted) return;
@@ -498,13 +562,14 @@ function App({ session }) {
     // Callers can pass rules explicitly: React state lags a just-saved rule by a
     // render, and generating without it would silently drop what he just asked for.
     const rs = rulesArg || rules;
-    const opts = { ...interpretRules(rs), blocked: excludeDisliked(prof.dislikes || []), days: daysFrom(weekStartFor(offset, anchor)) };
-    const p = generateWeek(tg, prof.budget_cap || 65, 60, opts);
+    const opts = { ...interpretRules(rs), blocked: excludeDisliked(prof.dislikes || []), days: daysFrom(weekStartFor(offset, anchor)),
+      out: parseOut(store.prefFrom(prof, "eat_out", store.DEFAULT_EAT_OUT)) };
+    const p = generateWeek(tg, prof.budget_cap || 68, 60, opts);
     const key = weekStartFor(offset, anchor);
     setWeeks((w) => ({ ...w, [key]: p }));
     setShopOffset(offset);   // the shop follows the plan you just generated
     try {
-      await store.saveWeekVersion(key, p, tg, prof.budget_cap || 65);
+      await store.saveWeekVersion(key, p, tg, prof.budget_cap || 68);
       // Only cravings that actually made it into this plan are spent. One that
       // didn't land keeps its turn, and generating a week a craving wasn't for
       // no longer throws it away.
@@ -519,7 +584,7 @@ function App({ session }) {
   async function applyPlan(next) {
     const fixed = next.map((d) => ({ ...d, totals: d.meals.reduce((a, m) => ({ kcal: Math.round(a.kcal + m.kcal), protein: Math.round(a.protein + m.protein) }), { kcal: 0, protein: 0 }) }));
     setWeeks((w) => ({ ...w, [wsKey]: fixed }));
-    try { await store.saveWeek(wsKey, fixed, targets, profile.budget_cap || 65); } catch {}
+    try { await store.saveWeek(wsKey, fixed, targets, profile.budget_cap || 68); } catch {}
   }
 
   /* ------- logging ------- */
@@ -752,7 +817,7 @@ function App({ session }) {
       // to go. Dislikes are filtered here so no swap can plant a blocked meal.
       const blockedHere = excludeDisliked(profile.dislikes || [])[slotKey] || [];
       const standing = interpretRules(rules).pins || [];
-      const cap = profile.budget_cap || 65;
+      const cap = profile.budget_cap || 68;
       const cur = plan[di].meals.find((m) => m.slot === a.slot);
 
       let candidates;
@@ -765,11 +830,21 @@ function App({ session }) {
         if (!tpl) { flash("Couldn't find that meal"); return; }
         candidates = [tpl];
       } else {
-        const allowed = list.filter((t) => !blockedHere.includes(t.id));
+        // Nothing that would be off by that day (diced sweet potato on day
+        // 6), and no fruit past the weekly allowance. A meal he names
+        // outright (set_meal above) is his call.
+        const unblocked = list.filter((t) => !blockedHere.includes(t.id));
+        const fresh = unblocked.filter((t) => fitsDay(plan, di, a.slot, t));
+        const allowed = fresh.length ? fresh : unblocked;
         const different = allowed.filter((t) => t.id !== cur?.id);
         // Shuffled so an affordable swap is still a varied one, rather than always
         // landing on the single cheapest meal in the slot.
-        candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5);
+        // Meals not already on the menu that week go first. A random pick
+        // could turn Wednesday into a fourth burger night and leave two
+        // different dinners all week.
+        const onMenu = new Set(plan.map((d) => d.meals.find((m) => m.slot === a.slot)).filter((m) => m && !m.eatOut).map((m) => m.id));
+        candidates = (different.length ? different : allowed).sort(() => Math.random() - 0.5)
+          .sort((x, y) => onMenu.has(x.id) - onMenu.has(y.id));
       }
       if (!candidates.length) { flash("Couldn't find a swap that fits your rules"); return; }
 
@@ -785,10 +860,15 @@ function App({ session }) {
         return { tpl, week: w, cost: weekCost(w), moved: true };
       };
 
+      // A swap that fits the budget by leaving two different dinners all week
+      // is a worse plan, not a cheaper one. Variety-keeping options are tried
+      // first, including by adjusting other days; only then anything that fits.
+      const varied = (w) => !["Lunch", "Dinner"].includes(a.slot)
+        || new Set(w.map((d) => d.meals.find((m) => m.slot === a.slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size >= 3;
       let picked = null, cheapest = null;
       const consider = (t) => { if (!cheapest || t.cost < cheapest.cost) cheapest = t; return t.cost <= cap; };
-      for (const c of candidates) if (consider(byTrim(c))) { picked = cheapest; break; }
-      if (!picked) for (const c of candidates) if (consider(byRebalance(c))) { picked = cheapest; break; }
+      const tryAll = (build, need) => { for (const c of candidates) { const t = build(c); if ((!need || varied(t.week)) && consider(t)) return t; } return null; };
+      picked = tryAll(byTrim, true) || tryAll(byRebalance, true) || tryAll(byTrim, false) || tryAll(byRebalance, false);
       // Nothing fits, so take the least bad and say so rather than silently
       // blowing the cap — invariant 2 is the one he never wants broken quietly.
       if (!picked) picked = cheapest;
@@ -920,7 +1000,7 @@ function App({ session }) {
         </div>
       )}
 
-      {openMeal && <RecipePage meal={openMeal} onBack={() => setOpenMeal(null)} />}
+      {openMeal && <RecipePage meal={openMeal} onBack={() => setOpenMeal(null)} hob={hob} onHob={saveHob} />}
 
       {confirmNew && (
         <Modal onClose={() => setConfirmNew(false)} title="Generate a new plan?"
@@ -981,7 +1061,7 @@ function App({ session }) {
         <header style={{ padding: "22px 0 14px" }}>
           <h1 style={{ fontSize: 25, fontWeight: 700, letterSpacing: "-.03em", margin: 0 }}>hungryvar</h1>
           <div style={{ fontSize: 12.5, color: t.soft, marginTop: 2 }}>
-            {targets.targetKcal} kcal · {targets.protein}g protein · £{profile.budget_cap || 65}/wk
+            {targets.targetKcal} kcal · {targets.protein}g protein · £{profile.budget_cap || 68}/wk
           </div>
         </header>
 
@@ -1144,10 +1224,42 @@ function App({ session }) {
 
         {tab === "groceries" && view.showList && grocery && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-              <h2 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>{view.readOnly ? "What you bought" : "Shopping list"}</h2>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 19, fontWeight: 600, color: grocery.estimatedTotal <= (profile.budget_cap || 65) ? t.teal : t.coral }}>£{grocery.estimatedTotal.toFixed(2)}</span>
-            </div>
+            <h2 style={{ fontSize: 21, fontWeight: 700, margin: "0 0 12px" }}>{view.readOnly ? "What you bought" : "Shopping list"}</h2>
+            {/* Two numbers, because they answer different questions. The till
+                is what this order costs today. Per week spreads things that
+                last several weeks (oil, rigatoni, sauces) over those weeks, and
+                it's what the budget is measured on. Showing only one left a
+                £13 surprise at checkout. */}
+            {(() => {
+              const cap = profile.budget_cap || 68;
+              const longer = grocery.items.filter((i) => i.estCost - i.weeklyCost > 0.05);
+              const diff = grocery.estimatedTotal - grocery.weeklyCost;
+              return (
+                <div style={{ background: t.card, border: `1px solid ${t.line}`, borderRadius: 14, padding: "12px 14px", marginBottom: 14 }}>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".06em" }}>At the till</div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600 }}>£{grocery.estimatedTotal.toFixed(2)}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: t.soft, textTransform: "uppercase", letterSpacing: ".06em" }}>Per week</div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 22, fontWeight: 600, color: grocery.weeklyCost <= cap ? t.teal : t.coral }}>£{grocery.weeklyCost.toFixed(2)}</div>
+                      <div style={{ fontSize: 11.5, color: t.dim }}>budget £{cap}</div>
+                    </div>
+                  </div>
+                  {diff > 0.5 && longer.length > 0 && (
+                    <div style={{ fontSize: 12.5, color: t.soft, marginTop: 8, lineHeight: 1.45 }}>
+                      The till is £{diff.toFixed(2)} more because {longer.map((i) => i.name.toLowerCase()).join(", ")} {longer.length === 1 ? "lasts" : "last"} more than a week, so only a share counts against this week.
+                    </div>
+                  )}
+                  {diff < -0.5 && (
+                    <div style={{ fontSize: 12.5, color: t.soft, marginTop: 8, lineHeight: 1.45 }}>
+                      The till is £{(-diff).toFixed(2)} less because some of this week's food is already in your kitchen.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 14px" }}>
               {grocery.items.length} items
               {view.canEditItems && ` · ${Object.values(checked).filter(Boolean).length} in basket`}
@@ -1181,7 +1293,7 @@ function App({ session }) {
                             <span style={{ color: t.peri, fontFamily: "'JetBrains Mono',monospace", marginRight: 7 }}>{it.display}</span>{it.name}
                           </div>
                           <div style={{ fontSize: 12, color: t.dim, marginTop: 2 }}>
-                            £{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}
+                            {it.product ? `${it.product} · ` : ""}£{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}
                             {it.usedIn?.length ? ` · for ${it.usedIn.length} meal${it.usedIn.length === 1 ? "" : "s"}` : ""}
                           </div>
                         </div>
@@ -1274,7 +1386,7 @@ function App({ session }) {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
                         <span style={{ fontSize: 15.5, fontWeight: 600 }}>{it.name}</span>
                         <span style={{ fontSize: 13.5, color: t.soft, fontFamily: "'JetBrains Mono',monospace" }}>
-                          {sec.key === "cupboard" ? "in stock" : Number(it.quantity) > 0 ? kitchenAmount(it.ingredient_id, Math.round(Number(it.quantity))) : "none left"}
+                          {Number(it.quantity) > 0 ? kitchenAmount(it.ingredient_id, Math.round(Number(it.quantity))) : "none left"}
                         </span>
                       </div>
                       <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -1340,6 +1452,25 @@ function App({ session }) {
                   type a date on a phone. */}
               <Field label="First shop" type="date" value={profile.first_shop_date || ""} onSave={(v) => saveField("first_shop_date", v || null)} />
               <Field label="Max cook time (min)" type="number" value={profile.max_cook_minutes} onSave={(v) => saveField("max_cook_minutes", +v)} />
+            </Section>
+
+            <Section title="Eating out" note={`Meals left off the plan each week, so nothing is bought for them. ${21 - eatOut.length} of 21 meals planned.`}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, alignItems: "center" }}>
+                {DAY_ORDER_NAMES.map((d) => (
+                  <React.Fragment key={d}>
+                    <div style={{ fontSize: 13.5, color: t.soft }}>{d}</div>
+                    {["Lunch", "Dinner"].map((slot) => {
+                      const key = `${d} ${slot}`, on = eatOut.includes(key);
+                      return (
+                        <button key={slot} onClick={() => toggleEatOut(key)}
+                          style={{ padding: "8px 0", borderRadius: 10, border: `1px solid ${on ? t.amber : t.line}`, background: on ? "rgba(245,169,98,.15)" : "transparent", color: on ? t.amber : t.dim, fontSize: 13, fontWeight: 600 }}>
+                          {on ? `Out · ${slot.toLowerCase()}` : slot.toLowerCase()}
+                        </button>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
             </Section>
 
             <Section title="What you're going for" note="Describe it however you like — the AI reads this when planning.">
@@ -1442,6 +1573,22 @@ function App({ session }) {
     const key = weekStartFor(offset, anchor);
     if (weeks[key]) return;
     try { const w = await store.getWeek(key); if (w?.plan) setWeeks((x) => ({ ...x, [key]: w.plan })); } catch {}
+  }
+
+  async function saveHob(k, level) {
+    const next = { ...hob };
+    if (level === null) delete next[k]; else next[k] = level;
+    setProfile((p) => ({ ...p, hob_overrides: next }));
+    await store.savePref("hob_overrides", next);
+    flash(level === null ? `${HOB[k].label}: back to ${HOB[k].level}/9` : `${HOB[k].label}: ${level}/9 from now on`);
+  }
+
+  async function toggleEatOut(key) {
+    const next = eatOut.includes(key) ? eatOut.filter((k) => k !== key) : [...eatOut, key];
+    // Into the profile state too, so the draft week rebuilds around it.
+    setProfile((p) => ({ ...p, eat_out: next }));
+    await store.savePref("eat_out", next);
+    flash(eatOut.includes(key) ? `${key} back on the plan` : `${key} left open for eating out`);
   }
 
   async function saveField(field, value) {

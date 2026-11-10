@@ -1,16 +1,17 @@
 // groceryListGenerator.js
 // Turns the week's meals into a shopping list written the way you'd actually
-// buy things: "2 avocados", "1 jar peanut butter", "700g chicken breast" —
-// not "300g avocado" or "100g peanut butter".
+// buy things: "2 avocados", "1 × 300g jar" peanut butter, "2 × 650g pack"
+// chicken — whole packs of the products he really buys, priced as such.
 
-import { allIngredients, pricePer100g, priceEach, purchaseUnits, shoppingGuide } from "./foodDatabase.js";
+import { allIngredients, shoppingGuide, choosePacks, productFor, isStaple, stapleWeeklyCost, packsForFreshness, toFreeze, kitchenAmount } from "./foodDatabase.js";
 
 const AISLES = {
-  meat: ["chicken_breast", "chicken_thigh", "salmon", "steak", "beef_mince_5", "turkey_mince", "pork_tenderloin"],
-  chilled: ["greek_yoghurt", "milk", "cheese", "feta", "eggs", "coconut_water"],
-  produce: ["cucumber", "zucchini", "peppers", "avocado", "broccoli", "asparagus", "spinach", "cherry_tomato", "mushroom", "celery", "sweet_potato", "potato", "banana", "apple", "berries", "mango", "watermelon", "kiwi", "orange", "pineapple", "grapes"],
-  bakery: ["sourdough", "pita", "tortilla"],
-  cupboard: ["rice", "oats", "pasta", "rice_noodles", "breadcrumbs", "flour", "peanut_butter_g", "olive_oil_g", "sesame_oil_g", "tuna_tin", "edamame"],
+  meat: ["chicken_breast", "chicken_thigh", "salmon", "steak", "beef_mince_5", "turkey_mince", "pork_tenderloin", "qp_burger", "lean_burger"],
+  chilled: ["greek_yoghurt", "milk", "cheese", "feta", "eggs", "coconut_water", "guacamole", "pepperoni", "tikka_sauce", "pasta_sauce"],
+  produce: ["cucumber", "zucchini", "peppers", "avocado", "asparagus", "cherry_tomato", "mushroom", "celery", "sweet_potato", "potato", "banana", "apple", "watermelon", "kiwi", "orange", "pineapple", "grapes"],
+  bakery: ["sourdough", "pita", "tortilla", "naan", "burger_bun"],
+  frozen: ["berries", "edamame", "mango", "broccoli", "peas", "spinach"],
+  cupboard: ["rice", "oats", "pasta", "granola", "rice_noodles", "breadcrumbs", "flour", "peanut_butter_g", "olive_oil_g", "sesame_oil_g", "chickpeas", "kidney_beans", "teriyaki_sauce", "peri_sauce", "peri_rub"],
 };
 
 function aisleFor(id) {
@@ -18,53 +19,17 @@ function aisleFor(id) {
   return "cupboard";
 }
 
-const PLURALS = { "sweet potato": "sweet potatoes", "potato": "potatoes", "quarter melon": "quarter melons", "head": "heads", "bunch": "bunches", "punnet": "punnets", "box of 12": "boxes of 12", "pack of 8": "packs of 8", "pack of 6": "packs of 6" };
+const PLURALS = { "sweet potato": "sweet potatoes", "potato": "potatoes", "quarter melon": "quarter melons", "head": "heads", "bunch": "bunches" };
 
-/** How many, and how big. A tub of yoghurt and a carton of coconut water both
- *  used to read "1 tub" / "1 carton", which tells you nothing in the aisle —
- *  units carrying a `size` say what to reach for: "1 × 1kg tub". */
-function sized(count, pu) {
-  if (pu.size) return `${count} × ${pu.size} ${pu.unit}`;
-  const plural = count === 1 ? pu.unit : (PLURALS[pu.unit] || (pu.unit.endsWith("s") ? pu.unit : `${pu.unit}s`));
-  return `${count} ${plural}`;
-}
-
-/** Convert a raw gram requirement into how you'd actually buy it. */
-function toPurchaseUnit(id, grams) {
-  const pu = purchaseUnits[id];
-  const ing = allIngredients.find((x) => x.id === id);
-
-  // Things counted in boxes/packs of individual items (eggs, tortillas, pita)
-  if (pu?.boxOf) {
-    const boxes = Math.max(1, Math.ceil(grams / pu.boxOf));
-    return { display: boxes === 1 ? `1 ${pu.unit}` : `${boxes} × ${pu.unit}`, buyGrams: boxes * pu.boxOf, packs: boxes };
+/** "2 × 650g pack", "1 × 4 pint" — or "3 peppers" for loose produce. Says what
+ *  to reach for in the aisle, and the count is always whole packs. */
+function describe(pick) {
+  const { pack, n } = pick;
+  if (pack.piece) {
+    const plural = n === 1 ? pack.label : (PLURALS[pack.label] || (pack.label.endsWith("s") ? pack.label : `${pack.label}s`));
+    return `${n} ${plural}`;
   }
-
-  // Store-cupboard staples — buy the whole jar/bag once, it lasts weeks
-  if (pu?.bulk) {
-    return { display: sized(1, pu), buyGrams: pu.perUnit, packs: 1, note: "lasts several weeks" };
-  }
-
-  // Countable produce — pieces, not grams
-  if (pu?.perUnit && pu.unit !== "g") {
-    const count = Math.max(1, Math.round(grams / pu.perUnit));
-    return { display: sized(count, pu), buyGrams: count * pu.perUnit, packs: count };
-  }
-
-  // Sold by weight — round up to a sensible pack
-  const pack = pu?.packSize || 100;
-  const rounded = Math.ceil(grams / pack) * pack;
-  return { display: rounded >= 1000 ? `${(rounded / 1000).toFixed(1)}kg` : `${rounded}g`, buyGrams: rounded, packs: rounded / pack };
-}
-
-const PACK_PRICES = { tortilla: 1.4, pita: 1.1, eggs: 3.2 }; // price per pack/box
-function costOf(id, grams, packs) {
-  const ing = allIngredients.find((x) => x.id === id);
-  if (!ing) return 0;
-  const pu = purchaseUnits[id];
-  if (pu?.boxOf) return (PACK_PRICES[id] || 1.5) * (packs || 1);
-  if (ing.unit === "each") return (priceEach[id] || 0.3) * grams;
-  return ((pricePer100g[id] || 0.3) * grams) / 100;
+  return `${n} × ${pack.label}`;
 }
 
 export function buildGroceryList(week, leftovers = {}, haveEnough = []) {
@@ -75,46 +40,79 @@ export function buildGroceryList(week, leftovers = {}, haveEnough = []) {
   // reading seven days of meals. Day order follows the week, which is already
   // in shop order.
   const usedIn = {};
-  week.forEach((day) => {
+  // The week starts on delivery day, so a day's position is how long the
+  // food has been in the fridge by then.
+  const uses = {};
+  week.forEach((day, dayIdx) => {
     day.meals.forEach((meal) => {
       (meal.items || []).forEach(([id, qty]) => {
         if (id === "whey") return;
         totals[id] = (totals[id] || 0) + qty;
         (usedIn[id] ||= []).push({ day: day.day, slot: meal.slot, meal: meal.name, qty });
+        (uses[id] ||= []).push({ day: dayIdx, dayName: day.day, qty });
       });
     });
   });
 
+  // Two totals, because they answer different questions. `estimatedTotal` is
+  // what this shop costs at the till: whole packs of whatever the pantry
+  // doesn't cover. `weeklyCost` is what the week's food really costs, with a
+  // bag of rigatoni or a bottle of oil spread over the weeks it lasts. The
+  // budget cap is measured against `weeklyCost`; charging a full staple every
+  // week had the planner fighting money that was never being spent.
+  let weeklyCost = 0;
   const items = Object.entries(totals).map(([id, rawQty]) => {
     const ing = allIngredients.find((x) => x.id === id);
     if (!ing) return null;
-    if (haveEnough.includes(id)) return null; // you said you've got plenty
+    const staple = isStaple(id);
     const owned = leftovers[id] || 0;
     const needed = Math.max(0, rawQty - owned);
-    if (needed <= 0) return null;
+    let pick = needed > 0 && !haveEnough.includes(id) ? choosePacks(id, needed) : null;
+    // A jar opened Monday and needed again Friday has gone off by then, so
+    // that's a second jar. Only counted on a full shop: with some already in
+    // the pantry there's no knowing when it was opened.
+    if (pick && !owned) {
+      const fresh = packsForFreshness(id, uses[id] || []);
+      if (fresh > pick.n) pick = { ...pick, n: fresh, cost: fresh * pick.pack.price, amount: fresh * pick.pack.size };
+    }
+    const tillCost = pick ? pick.cost : 0;
+    const weekly = staple ? stapleWeeklyCost(id, rawQty) : tillCost;
+    weeklyCost += weekly;
+    if (!pick) return null; // covered by the pantry, or you said you've got plenty
 
-    const purchase = toPurchaseUnit(id, needed);
+    const product = productFor(id);
+    const lasts = product.lastsWeeks && product.lastsWeeks > 1
+      ? `lasts ~${product.lastsWeeks} weeks, £${weekly.toFixed(2)}/wk` : product.staple ? "lasts several weeks" : null;
+    // Chicken keeps 2 days, so Friday's chicken has to go in the freezer
+    // the day it arrives. Said on the list, where he'll see it unpacking.
+    const fz = toFreeze(id, uses[id] || []);
+    const freeze = fz ? `freeze ${kitchenAmount(id, fz.qty)} on delivery, for ${fz.days.join(" & ")}` : null;
     return {
       id,
       name: ing.name,
-      display: purchase.display,
-      note: purchase.note,
-      buyGrams: purchase.buyGrams,
+      product: pick.pack.name || null,
+      estimate: Boolean(product.estimate),
+      display: describe(pick),
+      note: [freeze, lasts].filter(Boolean).join(" · ") || undefined,
+      freeze: fz || undefined,
+      buyGrams: pick.amount,
+      packs: pick.n,
       neededThisWeek: Math.round(rawQty),
       alreadyOwned: owned,
-      estCost: Math.round(costOf(id, purchase.buyGrams, purchase.packs) * 100) / 100,
+      estCost: Math.round(tillCost * 100) / 100,
+      weeklyCost: Math.round(weekly * 100) / 100,
       usedIn: usedIn[id] || [],
       aisle: aisleFor(id),
-      longLife: Boolean(purchaseUnits[id]?.bulk),
+      longLife: staple,
       storage: ing.storageDays,
       guide: shoppingGuide[id] || null,
     };
   }).filter(Boolean);
 
   // Group by aisle so the list follows how you actually walk round a shop
-  const order = ["produce", "meat", "chilled", "bakery", "cupboard"];
+  const order = ["produce", "meat", "chilled", "bakery", "frozen", "cupboard"];
   items.sort((a, b) => order.indexOf(a.aisle) - order.indexOf(b.aisle) || a.name.localeCompare(b.name));
 
   const estimatedTotal = Math.round(items.reduce((a, i) => a + i.estCost, 0) * 100) / 100;
-  return { items, estimatedTotal, byAisle: order.map((a) => ({ aisle: a, items: items.filter((i) => i.aisle === a) })).filter((g) => g.items.length) };
+  return { items, estimatedTotal, weeklyCost: Math.round(weeklyCost * 100) / 100, byAisle: order.map((a) => ({ aisle: a, items: items.filter((i) => i.aisle === a) })).filter((g) => g.items.length) };
 }

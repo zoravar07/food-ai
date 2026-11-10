@@ -1,4 +1,27 @@
 // Detailed recipes — written so you can actually follow them without guessing.
+
+// Hob settings for his 1-9 induction hob. These are estimates, not measured
+// on his hob: induction ranges differ by make and pan. A step writes {key}
+// where a setting goes, and the recipe page shows the number with a button to
+// correct it. A correction is stored per technique, so fixing "browning mince"
+// once fixes it in every recipe that browns mince.
+export const HOB = {
+  boil: { label: "Bringing pasta water to the boil", level: 9 },
+  pasta: { label: "Keeping pasta at a rolling boil", level: 7 },
+  stirfry: { label: "Stir-frying rice", level: 9 },
+  mince: { label: "Browning mince", level: 8 },
+  strips: { label: "Frying chicken strips or cubes", level: 7 },
+  fillet: { label: "Frying a whole or butterflied chicken breast", level: 6 },
+  burger: { label: "Frying burgers", level: 6 },
+  spinach: { label: "Cooking the water out of frozen spinach", level: 6 },
+  eggs_fry: { label: "Frying eggs", level: 5 },
+  bun: { label: "Toasting a bun in the pan", level: 5 },
+  naan: { label: "Warming naan in a dry pan", level: 5 },
+  glaze: { label: "Glazing with teriyaki", level: 4 },
+  simmer: { label: "Simmering a sauce", level: 3 },
+  eggs_soft: { label: "Soft scrambled eggs", level: 3 },
+};
+
 export const recipes = {
   greek_bowl: {
     blurb: "Thirty seconds of effort, 40g of protein. The oats stirred in make it filling enough to actually last until lunch.",
@@ -31,13 +54,13 @@ export const recipes = {
     tip: "Freeze peeled bananas when they go spotty — makes the smoothie cold and thick without watery ice.",
   },
   berry_smoothie: {
-    blurb: "Lighter than the peanut butter one, good on a hot day or after training.",
+    blurb: "Frozen strawberries make it thick and cold with no ice.",
     steps: [
-      "Milk in first, then berries, oats and yoghurt.",
+      "Milk in first, then the frozen strawberries, yoghurt and peanut butter.",
       "Blend 45 seconds.",
-      "Taste it — if the berries were sharp, a spoon of honey sorts it out.",
+      "Too thick, splash more milk.",
     ],
-    tip: "Frozen berries are half the price of fresh and work better here.",
+    tip: "Milk first or the frozen fruit jams the blades.",
   },
   scrambled_eggs: {
     blurb: "Proper scrambled eggs take three minutes and are miles better than the rubbery version.",
@@ -87,14 +110,12 @@ export const recipes = {
     tip: "Thighs are forgiving — an extra minute won't dry them out like breast would.",
   },
   teriyaki_bowl: {
-    blurb: "Sticky, savoury, and on the table in twenty.",
+    blurb: "Sticky, savoury, and on the table in fifteen.",
     steps: [
-      "Rice on first.",
       "Slice the chicken breast into strips so it cooks fast and evenly.",
-      "Fry in oil on high 5-6 minutes until golden.",
-      "Add the teriyaki and let it bubble for about a minute. It'll go from watery to glossy and cling to the chicken — that's your cue to take it off.",
-      "Steam or boil the broccoli 3 minutes — it should still have bite.",
-      "Serve over rice, sesame seeds if you have them.",
+      "Pan on {strips} for a minute, spray of oil, chicken in. 5 to 6 minutes, turning once, until golden.",
+      "Frozen broccoli and edamame in a covered bowl with a splash of water, 4 minutes in the microwave. Then the rice pouch, 2 minutes.",
+      "Hob down to {glaze}. Teriyaki into the chicken pan and toss for the last minute until glossy. Serve over the rice.",
     ],
     tip: "Add the sauce at the end. Too early and the sugar burns before the chicken's cooked.",
   },
@@ -122,29 +143,26 @@ export const recipes = {
     tip: "Cutting it straight away makes the filling slide out. Give it a minute.",
   },
   egg_fried_rice: {
-    blurb: "Best made with rice that's been in the fridge — fresh rice goes gluey.",
+    blurb: "Microwave rice is better for this than fresh: it's already dry.",
     steps: [
-      "Cook the rice ahead if you can and chill it. Otherwise spread fresh rice on a plate to cool and dry for 10 minutes.",
-      "Slice the chicken, fry on high heat 5 minutes until golden. Push to one side of the pan.",
-      "Crack the eggs into the empty side, scramble quickly, then mix through.",
-      "Add peppers, 1 minute.",
-      "Add rice, break up any clumps, and stir-fry 3 minutes on the highest heat.",
-      "Soy sauce, sesame oil, spring onion if you have it.",
+      "Squeeze the rice pouch to break it up. Don't microwave it.",
+      "Pan on {strips} for a minute. Sliced chicken in, 5 minutes until golden, then push it to one side.",
+      "Crack the eggs into the empty side and scramble for a minute, then mix through.",
+      "Frozen peas, edamame and spinach straight in, 2 minutes.",
+      "Turn it up to {stirfry}. Rice in and stir-fry 3 minutes, keeping it moving. Soy sauce if you have it.",
     ],
-    tip: "The pan needs to be properly hot. If it's steaming instead of sizzling, everything goes soggy.",
+    tip: "Highest heat the whole way. Low heat steams it and it goes claggy.",
   },
   mince_pasta: {
-    blurb: "A proper quick ragu. Better the longer it simmers, but fine at twenty minutes.",
+    blurb: "A quick ragu from a jar, better than it has any right to be.",
     steps: [
-      "Pasta water on to boil, salt it well.",
-      "Brown the mince in a hot pan — don't stir too much, let it catch and go crusty.",
-      "Add garlic, then the tomatoes, squashing them with the spoon.",
-      "Simmer 10 minutes while the pasta cooks.",
-      "Save a mug of pasta water before draining.",
-      "Toss pasta into the sauce with a splash of the water — that's what makes it cling.",
-      "Cheese over the top.",
+      "Kettle on. Boiled water into a pan on {boil} with a good pinch of salt. Once it's bubbling, pasta in and down to {pasta} for the time on the bag (rigatoni is usually 11 to 12 minutes).",
+      "Second pan on {mince} for a minute. Mince in, leave it 2 minutes to catch before stirring, about 5 minutes in all.",
+      "Jar of sauce in, down to {simmer}, 10 minutes while the pasta cooks.",
+      "Frozen spinach into the sauce for the last 3 minutes.",
+      "Save a mug of pasta water, drain, and toss the pasta through the sauce with a splash of it.",
     ],
-    tip: "The starchy pasta water is what turns a watery sauce into a glossy one. Don't skip it.",
+    tip: "The starchy pasta water is what makes a jar sauce cling instead of sliding off.",
   },
   loaded_potato: {
     blurb: "Cheap, huge, and hits the macros without much effort.",
@@ -191,16 +209,14 @@ export const recipes = {
     tip: "Adding yoghurt to a boiling pan makes it split into grainy lumps. Off the heat, always.",
   },
   burgers_wedges: {
-    blurb: "Better than any takeaway burger and you know exactly what's in it.",
+    blurb: "Friday burger. Shop patties and a brioche bun, wedges from the diced sweet potato.",
     steps: [
-      "Sweet potato into wedges, toss with oil, salt, paprika. Air fryer 20 minutes at 200C, or oven 30.",
-      "Form patties about 1.5cm thick and slightly wider than the bun, since they shrink as they cook. Press a shallow dent in the centre with your thumb — that stops them puffing into a ball.",
-      "Season the OUTSIDE only, generously.",
-      "Very hot pan, 4 minutes a side for medium. Never press them with the spatula — that squeezes out the fat and juice and gives you a dry burger.",
-      "Cheese on top for the last minute, cover the pan to melt it.",
-      "Rest 2 minutes, then build with avocado.",
+      "Tip the diced sweet potato onto a tray, a few sprays of oil, salt and paprika. Air fryer 18 minutes at 200C, or oven 25, shaking halfway.",
+      "With 12 minutes left on the wedges: pan on {burger} for a minute, burgers in, 5 minutes a side. Don't press them, that squeezes the juice out.",
+      "Burgers out to rest 2 minutes. Hob down to {bun}, bun cut-side down in the same pan, about a minute.",
+      "Build: guacamole on the bottom half, burger, lid.",
     ],
-    tip: "Mixing salt into the mince makes it bouncy like a sausage. Season the surface instead.",
+    tip: "A toasted bun doesn't go soggy under the guac. It's the minute that makes it taste like a restaurant burger.",
   },
   fajita_bowl: {
     blurb: "Charred peppers and chicken over lime rice.",
@@ -225,16 +241,15 @@ export const recipes = {
     tip: "Keep one hand for dry bowls and one for the egg, or your fingers end up breaded.",
   },
   chicken_pasta: {
-    blurb: "Creamy without cream — the yoghurt does it, off the heat.",
+    blurb: "Creamy without cream. Twenty minutes, one pan and a pot.",
     steps: [
-      "Pasta on in well-salted water.",
-      "Slice and fry the chicken until golden, 6 minutes.",
-      "Add garlic and spinach, let it wilt.",
-      "Save a mug of pasta water, then drain.",
-      "Take the pan OFF the heat and wait 30 seconds. Then stir in the yoghurt with a splash of pasta water. Straight into a hot pan and it splits into grainy lumps — off the heat it goes silky.",
-      "Toss the pasta through, add cheese and black pepper.",
+      "Kettle on. Boiled water into a pan on {boil}, salt it well. Once it's bubbling, rigatoni in and down to {pasta}. Frozen peas and spinach go in the same pot for the last 2 minutes.",
+      "Second pan on {strips} for a minute, spray of oil. Sliced chicken in, 6 minutes, turning once, until golden.",
+      "Save a mug of pasta water, then drain the pasta and veg.",
+      "Turn the chicken pan's ring off and wait 30 seconds. Then stir in the yoghurt with a splash of pasta water. Into a hot pan it splits into grainy lumps; off the heat it goes silky.",
+      "Toss the pasta through, lots of black pepper.",
     ],
-    tip: "Off the heat before the yoghurt goes in. On the heat it splits and goes grainy.",
+    tip: "Cooking the veg in the pasta water means one less thing to wash up.",
   },
   salmon_pasta: {
     blurb: "Feels fancy, takes twenty minutes.",
@@ -260,9 +275,199 @@ export const recipes = {
     ],
     tip: "Crowding is what stops things browning. Spread out = crisp, piled up = steamed.",
   },
+  granola_bowl: {
+    blurb: "Your usual. Two minutes, about 35g of protein before you've left the flat.",
+    steps: [
+      "Yoghurt in a bowl, granola on top.",
+      "Milk round the edge.",
+    ],
+    tip: "Granola goes on last, right before eating, or it goes soft.",
+  },
+  granola_berry_bowl: {
+    blurb: "Your usual with strawberries, for the days you fancy fruit.",
+    steps: [
+      "Frozen strawberries in a bowl, 30 seconds in the microwave so they soften and bleed a bit of juice.",
+      "Yoghurt on top, then the granola.",
+      "Splash of milk round the edge if you like it looser.",
+    ],
+    tip: "Granola goes on last, right before eating, or it goes soft.",
+  },
+  eggs_sourdough: {
+    blurb: "Eight minutes. Eggs, greens and proper toast.",
+    steps: [
+      "Sourdough in the toaster.",
+      "Frozen spinach in a non-stick pan on {spinach}, stirring, about 2 minutes until the water has cooked off. Tip it out onto the toast.",
+      "Whisk the eggs with the milk and a pinch of salt. Turn the hob down to {eggs_soft} and pour the eggs into the same pan. Leave them 20 seconds, then fold slowly from the edges every 15 seconds, 2 to 3 minutes in all.",
+      "Off the heat while they still look a little wet, and onto the toast.",
+    ],
+    tip: "Take the eggs off while they still look slightly wet. They finish on the plate.",
+  },
+  pb_toast_breakfast: {
+    blurb: "Four minutes, no pan. Toast and a bowl of yoghurt.",
+    steps: [
+      "Sourdough in the toaster.",
+      "Peanut butter on while it's hot so it melts in.",
+      "Yoghurt in a bowl on the side.",
+    ],
+    tip: "Pinch of flaky salt on the peanut butter.",
+  },
+  peri_chicken_sandwich: {
+    blurb: "A Nando's-style sandwich. Twelve minutes, most of it the chicken cooking.",
+    steps: [
+      "Slice the chicken breast in half horizontally so it cooks fast. Rub with the seasoning.",
+      "Pan on {fillet} for a minute, spray of oil. Chicken in, 4 minutes a side. Cut into the thickest part: no pink.",
+      "Toast the sourdough. Guacamole on one slice, a handful of spinach (thawed, squeezed) on the other.",
+      "Chicken in, peri-peri sauce over, close it.",
+    ],
+    tip: "Butterflying the chicken halves the cooking time and stops it drying out.",
+  },
+  chickpea_egg_toast: {
+    blurb: "Eight minutes. Protein from the eggs, fibre from the chickpeas.",
+    steps: [
+      "Drain and rinse the chickpeas, then mash roughly with a fork and the guacamole.",
+      "Pan on {eggs_fry}, spray of oil, eggs in. About 3 minutes, until the whites are set.",
+      "Toast the sourdough, chickpeas on, eggs on top, peri-peri sauce over.",
+    ],
+    tip: "Leave the chickpeas chunky. Mashed smooth it turns into paste.",
+  },
+  pb_toast_snack: {
+    blurb: "The cheap, filling one.",
+    steps: ["Toast the sourdough.", "Peanut butter on while it's hot."],
+    tip: "Good an hour or two before training.",
+  },
+  peri_rice_bowl: {
+    blurb: "Nando's at home for a fraction of the price.",
+    steps: [
+      "Slice the chicken into strips and toss with the rub and a spray of oil.",
+      "Pan on {strips} for a minute to heat (induction gets there fast). Chicken in and leave it 3 minutes, turn, 3 more. Cut the thickest strip: no pink.",
+      "Microwave the rice pouch, 2 minutes. Drain and rinse the kidney beans and stir them through.",
+      "Rice and beans in the bowl, chicken on top, peri-peri sauce over, guacamole on the side.",
+    ],
+    tip: "Rub the chicken before you do anything else. Even ten minutes sitting makes a difference.",
+  },
+  tikka_naan: {
+    blurb: "Takeaway curry in 22 minutes, scooped up with naan. The chickpeas stretch it and add fibre.",
+    steps: [
+      "Pan on {strips} for a minute, spray of oil. Cubed chicken in, 5 minutes, turning, until browned all over.",
+      "Pour in the sauce, the drained chickpeas and a splash of water. Down to {simmer}, lid on if you have one, 12 minutes.",
+      "Stir the spinach through for the last minute until it wilts.",
+      "Naan in a dry pan on {naan}, a minute a side, or 2 minutes in the oven.",
+    ],
+    tip: "Brown the chicken first, don't just simmer it raw in the sauce. That's where the flavour comes from.",
+  },
+  pepperoni_snack: { blurb: "Salty, high-protein, no cooking.", steps: ["Half the pack onto a plate."], tip: "Reseal the rest. It keeps for weeks unopened but only a few days once it's open." },
   cucumber_chilli: { blurb: "Barely any calories, high potassium, weirdly addictive.", steps: ["Slice the cucumber thickly.", "Squeeze over lemon or lime.", "Sprinkle chilli powder and salt."], tip: "Tajín if you can find it — it's exactly this in a bottle." },
   coconut_banana: { blurb: "Potassium hit, good after training.", steps: ["Pour the coconut water.", "Eat the banana."], tip: "Coconut water has more potassium than a sports drink, without the sugar." },
   yoghurt_snack: { blurb: "20g protein for about 200 calories.", steps: ["Yoghurt in a bowl.", "Berries on top, honey if you want."], tip: "Buy the big tub — much cheaper than the small pots." },
   banana_pb: { blurb: "Two ingredients, actually filling.", steps: ["Slice the banana.", "Spoon peanut butter over, or dip."], tip: "Cinnamon on top makes it taste like dessert." },
   cheese_tomato: { blurb: "Savoury snack that isn't crisps.", steps: ["Cube the cheese.", "Halve the tomatoes.", "Salt, pepper, olive oil if you're feeling it."], tip: "Never keep tomatoes in the fridge — it kills the flavour." },
+  mango_granola_bowl: {
+    blurb: "Same as your usual, mango instead of strawberries.",
+    steps: [
+      "Frozen mango in a bowl, 40 seconds in the microwave.",
+      "Yoghurt on top, then the granola.",
+      "Splash of milk round the edge.",
+    ],
+    tip: "Granola last, right before eating.",
+  },
+  chilli_rice_lunch: {
+    blurb: "A proper chilli in under 20 minutes.",
+    steps: [
+      "Pan on {mince} for a minute. Mince and rub in, break it up, then leave it 2 minutes to brown before you stir. About 5 minutes in all.",
+      "Drain the kidney beans and tip them in with the pasta sauce and frozen spinach. Down to {simmer}, 10 minutes, stirring now and then.",
+      "Rice pouch, 2 minutes. Chilli over the top.",
+    ],
+    tip: "Let the mince catch and go brown before stirring. That colour is the flavour.",
+  },
+  coconut_edamame: {
+    blurb: "The potassium snack. About 1,200mg between the two, and 11g of protein.",
+    steps: [
+      "Edamame in a covered bowl with a splash of water, 3 minutes in the microwave.",
+      "Drain, flaky salt. Glass of coconut water on the side.",
+    ],
+    tip: "Good straight after training, when you've sweated the most out.",
+  },
+  coconut_mango: {
+    blurb: "Potassium hit, good after training.",
+    steps: [
+      "Pour the coconut water.",
+      "Mango chunks, thawed for 10 minutes or 30 seconds in the microwave.",
+    ],
+    tip: "Coconut water has more potassium than a sports drink.",
+  },
+  edamame_snack: {
+    blurb: "12g of protein and real fibre, from the freezer.",
+    steps: [
+      "Edamame in a covered bowl with a splash of water, 3 minutes in the microwave.",
+      "Drain, flaky salt, chilli flakes if you have them.",
+    ],
+    tip: "Make a double batch and keep half in the fridge for tomorrow.",
+  },
+  pb_yoghurt: {
+    blurb: "Tastes like dessert, 15g of protein.",
+    steps: [
+      "Yoghurt in a bowl.",
+      "Swirl the peanut butter through without fully mixing it.",
+    ],
+    tip: "Microwave the peanut butter for 10 seconds so it drizzles.",
+  },
+  strawberry_dessert: {
+    blurb: "The after-dinner sweet thing, from the freezer.",
+    steps: [
+      "Frozen strawberries in a bowl, 60 seconds in the microwave.",
+      "Let them sit a minute. They go jammy in their own juice.",
+    ],
+    tip: "Eat them half-thawed and they taste like sorbet.",
+  },
+  mango_dessert: {
+    blurb: "Frozen mango, nothing else.",
+    steps: [
+      "Mango chunks in a bowl, 10 minutes on the side or 30 seconds in the microwave.",
+    ],
+    tip: "Half-thawed, it eats like sorbet.",
+  },
+  mango_strawberry_dessert: {
+    blurb: "Two frozen fruits, one bowl.",
+    steps: [
+      "Both into a bowl, 45 seconds in the microwave.",
+    ],
+    tip: "Squeeze of lime if you have one.",
+  },
+  burger_peas: {
+    blurb: "The quick burger night. Twelve minutes, no oven.",
+    steps: [
+      "Pan on {burger} for a minute. Burger in, 5 minutes a side. Don't press it.",
+      "Frozen peas in a covered bowl with a splash of water, 3 minutes in the microwave. Salt and pepper.",
+      "Burger out to rest. Hob down to {bun} and toast the bun cut-side down in the burger pan, about a minute.",
+    ],
+    tip: "Rest the burger 2 minutes before it goes in the bun.",
+  },
+  peri_chicken_wedges: {
+    blurb: "A Nando's plate at home: chicken, wedges, greens.",
+    steps: [
+      "Diced sweet potato on a tray, spray of oil and salt. Air fryer 18 minutes at 200C.",
+      "With 15 minutes left on the wedges: pan on {fillet} for a minute, rubbed chicken in, 6 to 7 minutes a side. A whole breast is thick, so cut into the middle to check: no pink.",
+      "Frozen broccoli, covered, 4 minutes in the microwave.",
+      "Peri-peri sauce over the chicken.",
+    ],
+    tip: "Rub the chicken before you start the wedges. Even 15 minutes helps.",
+  },
+  chilli_naan: {
+    blurb: "Chilli, scooped up with naan instead of rice.",
+    steps: [
+      "Pan on {mince} for a minute. Mince and rub in, break it up, then leave it 2 minutes to brown before stirring.",
+      "Drained kidney beans, the pasta sauce and frozen spinach in. Down to {simmer}, 10 minutes.",
+      "Naan in a dry pan on {naan}, a minute a side, or 2 minutes in the oven.",
+    ],
+    tip: "Let the mince catch and go brown before stirring.",
+  },
+  teriyaki_rice_dinner: {
+    blurb: "Fifteen minutes, mostly waiting for the pan.",
+    steps: [
+      "Chicken in strips. Pan on {strips} for a minute, spray of oil, chicken in, 6 minutes, turning once.",
+      "Frozen broccoli covered in the microwave, 4 minutes. Then the rice pouch, 2 minutes.",
+      "Hob down to {glaze}, teriyaki into the chicken pan for the last minute until glossy.",
+    ],
+    tip: "Sauce in at the end. Too early and the sugar burns.",
+  },
 };

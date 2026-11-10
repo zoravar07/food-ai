@@ -31,7 +31,7 @@ ABOUT HIM:
 ${bits.length ? `- ${bits.join(", ")}.` : ""}
 - Goal: ${goalWords[p.goal] || p.goal || "not set"}. Trains ${p.training_days ?? "?"}x a week.
 - Daily targets: ~${targets.targetKcal ?? "?"} kcal, ~${targets.protein ?? "?"}g protein, ~${targets.fat ?? "?"}g fat, ~${targets.carbs ?? "?"}g carbs.
-- Weekly grocery budget: £${p.budget_cap ?? 65}. Cooks fresh, under ${p.max_cook_minutes ?? 30} minutes.
+- Weekly grocery budget: £${p.budget_cap ?? 68}. Cooks fresh, under ${p.max_cook_minutes ?? 30} minutes.
 ${p.goal_notes ? `- In his words: ${p.goal_notes}` : ""}
 ${p.food_notes ? `\nFOOD HE LIKES AND DOESN'T:\n${p.food_notes}` : ""}
 ${p.dislikes?.length ? `- Never plan these, ever: ${p.dislikes.join(", ")}.` : ""}

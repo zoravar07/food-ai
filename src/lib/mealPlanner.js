@@ -4,7 +4,7 @@
 // an actual weekly budget ceiling by swapping out the priciest meals until the
 // whole week's grocery cost fits.
 
-import { allIngredients, estimateItemCost } from "./foodDatabase.js";
+import { allIngredients, estimateItemCost, weekCostOf, tooLate, products } from "./foodDatabase.js";
 import { buildGroceryList } from "./groceryListGenerator.js";
 import { DAY_NAMES } from "./weeks.js";
 
@@ -18,58 +18,124 @@ const WEEKLY_CAP = { salmon: 1, steak: 1 };
 const SLOT_KCAL_CEILING = { Breakfast: 700, Lunch: 900, Dinner: 950, Snack: 300 };
 // Hard caps on how much of any one ingredient can land in a single meal.
 const INGREDIENT_MAX_G = {
-  oats: 90, rice: 150, pasta: 150, potato: 400, sweet_potato: 350, rice_noodles: 150,
-  sourdough: 120, pita: 130, tortilla: 3, breadcrumbs: 60, greek_yoghurt: 300,
+  oats: 90, rice: 250, pasta: 150, potato: 400, sweet_potato: 350, rice_noodles: 150,
+  // Granola at 50g keeps it to a box a week, which is what he gets through.
+  sourdough: 4, pita: 130, tortilla: 3, breadcrumbs: 60, greek_yoghurt: 300,
+  naan: 2, burger_bun: 2, qp_burger: 2, granola: 50, chickpeas: 240, milk: 300,
+  peanut_butter_g: 30,
   berries: 200, banana: 150, mango: 200, cheese: 60, avocado: 100,
 };
 
+// The library is built from what his Ocado orders show he actually buys, plus
+// frozen veg and tins that keep: no fresh produce, nothing that rots. Most
+// meals are assembly or a single pan; anything 25 minutes or over has to earn
+// it. `max` is how many times a week a meal may appear: breakfast is the same
+// granola bowl most days because that's what he eats, and burger night is
+// several nights a week, not one. Fruit is a once- or twice-a-week thing for
+// him, so anything with fruit in it counts against FRUIT_PER_WEEK. Sourdough
+// is the cheap, no-cook filler: toast and sandwiches, never cooking.
 export const templates = {
   breakfast: [
-    { id: "greek_bowl", name: "Greek yoghurt & berry bowl", cuisine: "simple", items: [["greek_yoghurt", 280], ["oats", 40], ["berries", 100], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
-    { id: "yoghurt_parfait", name: "Yoghurt parfait", cuisine: "simple", items: [["greek_yoghurt", 280], ["oats", 40], ["banana", 120], ["peanut_butter_g", 20]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 4 },
-    { id: "protein_smoothie", name: "Banana & peanut butter smoothie", cuisine: "simple", items: [["greek_yoghurt", 150], ["milk", 300], ["banana", 120], ["oats", 40], ["peanut_butter_g", 25]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
-    { id: "berry_smoothie", name: "Berry smoothie", cuisine: "simple", items: [["greek_yoghurt", 200], ["milk", 300], ["berries", 120], ["oats", 40]], proteinAnchor: "greek_yoghurt", carbAnchor: "oats", time: 3 },
-    { id: "scrambled_eggs", name: "Scrambled eggs on toast", cuisine: "simple", items: [["eggs", 4], ["sourdough", 80], ["cheese", 25]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
-    { id: "fried_eggs_avo", name: "Fried eggs & avocado toast", cuisine: "simple", items: [["eggs", 3], ["sourdough", 80], ["avocado", 75]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
-    { id: "omelette", name: "Cheese & spinach omelette", cuisine: "simple", items: [["eggs", 4], ["sourdough", 60], ["spinach", 40], ["cheese", 30]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 9 },
+    { id: "granola_bowl", name: "Protein granola & yoghurt", cuisine: "simple", items: [["greek_yoghurt", 130], ["granola", 45], ["milk", 150]], proteinAnchor: null, carbAnchor: "granola", time: 2, max: 7 },
+    { id: "granola_berry_bowl", name: "Protein granola, yoghurt & strawberries", cuisine: "simple", items: [["greek_yoghurt", 130], ["granola", 45], ["berries", 80], ["milk", 100]], proteinAnchor: null, carbAnchor: "granola", time: 2 },
+    { id: "mango_granola_bowl", name: "Protein granola, yoghurt & mango", cuisine: "simple", items: [["greek_yoghurt", 130], ["granola", 45], ["mango", 80], ["milk", 100]], proteinAnchor: null, carbAnchor: "granola", time: 2 },
+    { id: "eggs_sourdough", name: "Scrambled eggs & spinach on sourdough", cuisine: "simple", items: [["eggs", 3], ["sourdough", 2], ["spinach", 100], ["milk", 30]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8, max: 3 },
+    { id: "pb_toast_breakfast", name: "Peanut butter sourdough & yoghurt", cuisine: "simple", items: [["sourdough", 2], ["peanut_butter_g", 20], ["greek_yoghurt", 150]], proteinAnchor: null, carbAnchor: "sourdough", time: 4, max: 3 },
+    { id: "berry_smoothie", name: "Strawberry & peanut butter smoothie", cuisine: "simple", items: [["milk", 300], ["greek_yoghurt", 100], ["berries", 100], ["peanut_butter_g", 20]], proteinAnchor: null, carbAnchor: null, time: 3 },
   ],
   lunch: [
-    { id: "shawarma_bowl", name: "Chicken shawarma bowl", cuisine: "middle_eastern", items: [["chicken_thigh", 220], ["rice", 110], ["greek_yoghurt", 50], ["cherry_tomato", 80]], proteinAnchor: "chicken_thigh", carbAnchor: "rice", time: 22 },
-    { id: "teriyaki_bowl", name: "Chicken teriyaki rice bowl", cuisine: "japanese", items: [["chicken_breast", 220], ["rice", 110], ["broccoli", 100], ["olive_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 20 },
-    { id: "chicken_wrap", name: "Chicken & avocado wrap", cuisine: "simple", items: [["chicken_thigh", 200], ["tortilla", 2], ["greek_yoghurt", 50], ["avocado", 60], ["cucumber", 60]], proteinAnchor: "chicken_thigh", carbAnchor: "tortilla", time: 18 },
-    { id: "quesadilla", name: "Cheesy chicken quesadilla", cuisine: "mexican", items: [["chicken_breast", 190], ["tortilla", 2], ["cheese", 50], ["peppers", 60]], proteinAnchor: "chicken_breast", carbAnchor: "tortilla", time: 15 },
-    { id: "egg_fried_rice", name: "Chicken egg-fried rice", cuisine: "chinese", items: [["chicken_breast", 200], ["rice", 120], ["eggs", 2], ["peppers", 80], ["olive_oil_g", 10]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 18 },
-    { id: "mince_pasta", name: "Beef mince pasta", cuisine: "italian", items: [["beef_mince_5", 200], ["pasta", 120], ["cherry_tomato", 100], ["cheese", 30]], proteinAnchor: "beef_mince_5", carbAnchor: "pasta", time: 22 },
-    { id: "loaded_potato", name: "Loaded baked potato", cuisine: "british", items: [["beef_mince_5", 180], ["sweet_potato", 350], ["cheese", 45], ["greek_yoghurt", 40]], proteinAnchor: "beef_mince_5", carbAnchor: "sweet_potato", time: 25 },
+    { id: "peri_rice_bowl", name: "Peri-peri chicken, rice & beans", cuisine: "simple", items: [["chicken_breast", 200], ["rice", 125], ["kidney_beans", 80], ["peri_sauce", 25], ["peri_rub", 4], ["guacamole", 40]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 15 },
+    { id: "teriyaki_bowl", name: "Chicken teriyaki & edamame rice bowl", cuisine: "japanese", items: [["chicken_breast", 180], ["rice", 125], ["edamame", 80], ["broccoli", 80], ["teriyaki_sauce", 30]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 15 },
+    { id: "egg_fried_rice", name: "Chicken & pea egg-fried rice", cuisine: "chinese", items: [["chicken_breast", 160], ["eggs", 2], ["rice", 150], ["peas", 80], ["edamame", 40], ["spinach", 50], ["olive_oil_g", 5]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 15 },
+    { id: "chilli_rice_lunch", name: "Quick beef & bean chilli rice", cuisine: "mexican", items: [["beef_mince_5", 180], ["kidney_beans", 140], ["pasta_sauce", 100], ["spinach", 50], ["rice", 125], ["peri_rub", 3]], proteinAnchor: "beef_mince_5", carbAnchor: "rice", time: 18 },
+    { id: "peri_chicken_sandwich", name: "Peri-peri chicken & guacamole sourdough sandwich", cuisine: "simple", items: [["chicken_breast", 160], ["sourdough", 2], ["guacamole", 40], ["spinach", 40], ["peri_sauce", 15], ["peri_rub", 3]], proteinAnchor: "chicken_breast", carbAnchor: "sourdough", time: 12 },
+    { id: "chickpea_egg_toast", name: "Smashed chickpeas, eggs & guacamole on sourdough", cuisine: "mediterranean", items: [["eggs", 3], ["chickpeas", 120], ["sourdough", 2], ["guacamole", 30], ["peri_sauce", 10]], proteinAnchor: "eggs", carbAnchor: "sourdough", time: 8 },
   ],
   snack: [
-    { id: "cucumber_chilli", name: "Cucumber, lemon & chilli", items: [["cucumber", 150]], proteinAnchor: null, carbAnchor: null, time: 3 },
-    { id: "coconut_banana", name: "Coconut water & banana", items: [["coconut_water", 330], ["banana", 120]], proteinAnchor: null, carbAnchor: null, time: 1 },
-    { id: "yoghurt_snack", name: "Yoghurt & berries", items: [["greek_yoghurt", 150], ["berries", 80]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "banana_pb", name: "Banana & peanut butter", items: [["banana", 120], ["peanut_butter_g", 25]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "cheese_tomato", name: "Cheese & cherry tomatoes", items: [["cheese", 40], ["cherry_tomato", 120]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "pepperoni_snack", name: "Pepperoni slices", items: [["pepperoni", 40]], proteinAnchor: null, carbAnchor: null, time: 1, max: 2 },
+    { id: "edamame_snack", name: "Salted edamame", items: [["edamame", 120]], proteinAnchor: null, carbAnchor: null, time: 4, max: 3 },
+    { id: "pb_yoghurt", name: "Peanut butter yoghurt", items: [["greek_yoghurt", 150], ["peanut_butter_g", 15]], proteinAnchor: null, carbAnchor: null, time: 1, max: 3 },
+    { id: "pb_toast_snack", name: "Peanut butter on sourdough", items: [["sourdough", 2], ["peanut_butter_g", 20]], proteinAnchor: null, carbAnchor: null, time: 3, max: 3 },
+    // Coconut water is the biggest potassium source he already buys: 330ml
+    // is ~800mg, as much as the edamame alongside it.
+    { id: "coconut_edamame", name: "Coconut water & salted edamame", items: [["coconut_water", 330], ["edamame", 100]], proteinAnchor: null, carbAnchor: null, time: 4, max: 3 },
+    { id: "coconut_mango", name: "Coconut water & mango", items: [["coconut_water", 330], ["mango", 80]], proteinAnchor: null, carbAnchor: null, time: 1 },
+    { id: "yoghurt_snack", name: "Yoghurt & strawberries", items: [["greek_yoghurt", 150], ["berries", 80]], proteinAnchor: null, carbAnchor: null, time: 2 },
   ],
   dessert: [
-    { id: "watermelon_dessert", name: "Watermelon", items: [["watermelon", 300]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "kiwi_dessert", name: "Kiwi", items: [["kiwi", 150]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "orange_dessert", name: "Orange", items: [["orange", 140]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "grapes_dessert", name: "Frozen grapes", items: [["grapes", 150]], proteinAnchor: null, carbAnchor: null, time: 1 },
-    { id: "pineapple_dessert", name: "Pineapple", items: [["pineapple", 165]], proteinAnchor: null, carbAnchor: null, time: 3 },
-    { id: "yoghurt_berries_dessert", name: "Yoghurt & berries", items: [["greek_yoghurt", 150], ["berries", 80]], proteinAnchor: null, carbAnchor: null, time: 2 },
-    { id: "choc_yoghurt_dessert", name: "Chocolate yoghurt bowl", items: [["greek_yoghurt", 170], ["banana", 100]], proteinAnchor: null, carbAnchor: null, time: 3 },
+    { id: "strawberry_dessert", name: "Warm strawberries", items: [["berries", 120]], proteinAnchor: null, carbAnchor: null, time: 2 },
+    { id: "mango_dessert", name: "Mango chunks", items: [["mango", 120]], proteinAnchor: null, carbAnchor: null, time: 1 },
+    { id: "mango_strawberry_dessert", name: "Mango & strawberries", items: [["mango", 60], ["berries", 60]], proteinAnchor: null, carbAnchor: null, time: 2 },
   ],
   dinner: [
-    { id: "salmon_greens_rice", name: "Salmon, greens & rice", cuisine: "japanese", items: [["salmon", 180], ["rice", 120], ["broccoli", 120], ["olive_oil_g", 10]], proteinAnchor: "salmon", carbAnchor: "rice", time: 25 },
-    { id: "beef_tacos", name: "Beef mince tacos", cuisine: "mexican", items: [["beef_mince_5", 220], ["tortilla", 3], ["cheese", 40], ["avocado", 60]], proteinAnchor: "beef_mince_5", carbAnchor: "tortilla", time: 20 },
-    { id: "tikka_curry", name: "Chicken tikka-style curry", cuisine: "indian", items: [["chicken_breast", 220], ["rice", 120], ["greek_yoghurt", 70], ["spinach", 60]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 28 },
-    { id: "burgers_wedges", name: "Homemade burgers & sweet potato wedges", cuisine: "american", items: [["beef_mince_5", 240], ["sweet_potato", 300], ["cheese", 30], ["avocado", 50]], proteinAnchor: "beef_mince_5", carbAnchor: "sweet_potato", time: 25 },
-    { id: "fajita_bowl", name: "Chicken fajita bowl", cuisine: "mexican", items: [["chicken_breast", 220], ["rice", 110], ["peppers", 120], ["cheese", 30]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 22 },
-    { id: "chicken_nuggets", name: "Chicken nuggets & sweet potato fries", cuisine: "american", items: [["chicken_breast", 220], ["sweet_potato", 300], ["breadcrumbs", 55], ["olive_oil_g", 12]], proteinAnchor: "chicken_breast", carbAnchor: "sweet_potato", time: 28 },
-    { id: "chicken_pasta", name: "Creamy chicken pasta", cuisine: "italian", items: [["chicken_breast", 210], ["pasta", 120], ["greek_yoghurt", 60], ["spinach", 60], ["cheese", 30]], proteinAnchor: "chicken_breast", carbAnchor: "pasta", time: 22 },
-    { id: "salmon_pasta", name: "Salmon & spinach pasta", cuisine: "italian", items: [["salmon", 170], ["pasta", 120], ["spinach", 60], ["greek_yoghurt", 50]], proteinAnchor: "salmon", carbAnchor: "pasta", time: 22 },
-    { id: "chicken_thigh_traybake", name: "Chicken thigh & sweet potato traybake", cuisine: "simple", items: [["chicken_thigh", 240], ["sweet_potato", 300], ["peppers", 100], ["olive_oil_g", 12]], proteinAnchor: "chicken_thigh", carbAnchor: "sweet_potato", time: 30 },
+    // Ready-made quarter pounders in brioche buns, which is what his orders
+    // show for burger night. The peas version comes first so "burger on
+    // Fridays" pins it: the diced sweet potato for wedges is only good for
+    // 4 days, and the burgers and buns freeze.
+    { id: "burger_peas", name: "Beef burger in a brioche bun with peas", cuisine: "american", items: [["qp_burger", 1], ["burger_bun", 1], ["peas", 150]], proteinAnchor: "qp_burger", carbAnchor: null, time: 12, max: 3 },
+    { id: "burgers_wedges", name: "Beef burger in a brioche bun & sweet potato wedges", cuisine: "american", items: [["qp_burger", 1], ["burger_bun", 1], ["sweet_potato", 175], ["guacamole", 30]], proteinAnchor: "qp_burger", carbAnchor: "sweet_potato", time: 20, max: 4 },
+    { id: "peri_chicken_wedges", name: "Peri-peri chicken, sweet potato & broccoli", cuisine: "simple", items: [["chicken_breast", 220], ["sweet_potato", 175], ["broccoli", 120], ["peri_sauce", 25], ["peri_rub", 4]], proteinAnchor: "chicken_breast", carbAnchor: "sweet_potato", time: 22 },
+    { id: "tikka_naan", name: "Chicken & chickpea tikka masala with naan", cuisine: "indian", items: [["chicken_breast", 200], ["tikka_sauce", 150], ["chickpeas", 100], ["naan", 1], ["spinach", 100]], proteinAnchor: "chicken_breast", carbAnchor: "naan", time: 22 },
+    { id: "mince_pasta", name: "Beef mince & spinach rigatoni", cuisine: "italian", items: [["beef_mince_5", 200], ["pasta", 110], ["pasta_sauce", 150], ["spinach", 100]], proteinAnchor: "beef_mince_5", carbAnchor: "pasta", time: 20 },
+    { id: "chilli_naan", name: "Beef & bean chilli with naan", cuisine: "mexican", items: [["beef_mince_5", 200], ["kidney_beans", 150], ["pasta_sauce", 120], ["spinach", 80], ["naan", 1], ["peri_rub", 3]], proteinAnchor: "beef_mince_5", carbAnchor: "naan", time: 20 },
+    { id: "chicken_pasta", name: "Creamy chicken, pea & spinach rigatoni", cuisine: "italian", items: [["chicken_breast", 200], ["pasta", 110], ["greek_yoghurt", 60], ["peas", 100], ["spinach", 60]], proteinAnchor: "chicken_breast", carbAnchor: "pasta", time: 20 },
+    { id: "teriyaki_rice_dinner", name: "Teriyaki chicken, rice, broccoli & edamame", cuisine: "japanese", items: [["chicken_breast", 220], ["rice", 150], ["broccoli", 120], ["edamame", 60], ["teriyaki_sauce", 30]], proteinAnchor: "chicken_breast", carbAnchor: "rice", time: 15 },
   ],
 };
+
+// He has fruit once or twice a week, not daily. Every template with fruit in
+// it, in any slot, counts towards this.
+export const FRUIT_PER_WEEK = 2;
+const FRUIT = new Set(["berries", "mango", "banana", "pineapple", "grapes", "watermelon"]);
+export const hasFruit = (tpl) => (tpl?.items || []).some(([id]) => FRUIT.has(id));
+export const fruitCount = (week) => week.reduce((n, d) => n + d.meals.filter(hasFruit).length, 0);
+
+/** A meal that would be eating something past its date on day `dayIdx` of
+ *  the week (0 = delivery day). Diced sweet potato on day 6, say. */
+export const lateOn = (tpl, dayIdx) => (tpl?.items || []).some(([id]) => tooLate(id, dayIdx));
+
+/** Can `tpl` go in `slot` on day `di` of `week` without food going off or
+ *  the week going over its fruit? Every pass that moves meals asks this. */
+export function fitsDay(week, di, slot, tpl) {
+  if (lateOn(tpl, di)) return false;
+  if (!hasFruit(tpl)) return true;
+  const cur = week[di]?.meals.find((m) => m.slot === slot);
+  return fruitCount(week) - (hasFruit(cur) ? 1 : 0) + 1 <= FRUIT_PER_WEEK;
+}
+
+/** A meal he's eating out for. It's a real slot on the plan so the day reads
+ *  honestly, but it has no ingredients, costs nothing, and no pass that
+ *  moves meals around will touch it. */
+export const EAT_OUT = { id: "eating_out", name: "Eating out", items: [], eatOut: true, time: 0, proteinAnchor: null, carbAnchor: null };
+
+/** What share of a day's calories and protein each meal carries, measured
+ *  over 210 generated days at £68. A day with dinner out aims for the rest of
+ *  the day's usual amount, not a full day squeezed into the other meals. */
+const OUT_SHARE = {
+  Breakfast: { kcal: 0.24, protein: 0.17 },
+  Lunch: { kcal: 0.32, protein: 0.33 },
+  Dinner: { kcal: 0.26, protein: 0.28 },
+};
+
+/** "Sat Dinner" -> { day: "Sat", slot: "Dinner" } */
+export function parseOut(list = []) {
+  return (list || []).map((x) => {
+    const [day, slot] = String(x).split(/[\s:]+/);
+    return day && slot ? { day, slot: slot.charAt(0).toUpperCase() + slot.slice(1).toLowerCase() } : null;
+  }).filter(Boolean);
+}
+
+/** The day's targets once any eaten-out meal is taken off. */
+export function dayTargets(targets, meals = []) {
+  const out = meals.filter((m) => m?.eatOut);
+  if (!out.length) return targets;
+  const k = out.reduce((a, m) => a + (OUT_SHARE[m.slot]?.kcal ?? 0.3), 0);
+  const p = out.reduce((a, m) => a + (OUT_SHARE[m.slot]?.protein ?? 0.3), 0);
+  return { ...targets, targetKcal: Math.round(targets.targetKcal * (1 - k)), protein: Math.round(targets.protein * (1 - p)) };
+}
+
+/** How many times a template may appear in a week. */
+const maxUses = (tpl) => tpl.max ?? 2;
 
 function macrosForItems(items) {
   return items.reduce(
@@ -89,35 +155,55 @@ function templateCost(items) {
   return items.reduce((s, [id, qty]) => s + estimateItemCost(id, qty), 0);
 }
 
-// Pack sizes that must be bought whole — introducing a new one costs a full pack.
-const PACK_COST = {
-  chicken_breast: 4.5, chicken_thigh: 3.5, salmon: 3.3, steak: 6.5,
-  beef_mince_5: 5.5, turkey_mince: 5.0, pork_tenderloin: 5.2,
-};
+/** What adding `tpl` costs given everything already planned this week
+ *  (`basket`: ingredient -> quantity). Packs are bought whole, so the second
+ *  burger out of a 4-pack is nearly free and the first one carries the pack.
+ *  This is what makes the planner reuse what it has opened instead of buying a
+ *  tub of guacamole for 30g. */
+function marginalCost(tpl, basket) {
+  return tpl.items.reduce((sum, [id, qty]) => {
+    if (id === "whey") return sum;
+    const have = basket[id] || 0;
+    return sum + weekCostOf(id, have + qty) - weekCostOf(id, have);
+  }, 0);
+}
 
-function pickNonRepeating(list, usedIds, expensiveCount, openedProteins = new Set(), blockedIds = []) {
-  const options = list.filter((t) => {
-    if (blockedIds.includes(t.id)) return false;
-    if (usedIds.has(t.id)) return false;
-    const capped = t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]);
-    return !capped;
-  });
-  const allowed = list.filter((t) => !blockedIds.includes(t.id));
-  const pool = options.length
-    ? options
-    : allowed.filter((t) => !t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]));
+/** Most nights there isn't time to cook, so quick meals are favoured and
+ *  anything 25 minutes or over has to be much cheaper to get picked. */
+function speedWeight(time = 20) {
+  return time <= 5 ? 1.8 : time <= 12 ? 1.5 : time <= 18 ? 1.2 : time <= 22 ? 1 : time < 30 ? 0.6 : 0.3;
+}
+
+function addToBasket(basket, tpl) {
+  tpl.items.forEach(([id, qty]) => { if (id !== "whey") basket[id] = (basket[id] || 0) + qty; });
+}
+
+/** Uses something freezable after it would have gone off in the fridge, so
+ *  it means freezing a portion on delivery day. Fine, but a little less
+ *  likely to be picked than the same meal earlier in the week. */
+const needsFreezing = (tpl, dayIdx) => tpl.items.some(([id]) => {
+  const p = products[id];
+  return p?.freezable && p.life !== undefined && dayIdx > p.life;
+});
+
+function pickNonRepeating(list, useCount, expensiveCount, basket = {}, blockedIds = [], ok = () => true, dayIdx = 0) {
+  // Dislikes are absolute. Freshness and the fruit limit only give way if
+  // literally nothing else is left in the slot.
+  const unblocked = list.filter((t) => !blockedIds.includes(t.id));
+  const fits = unblocked.filter(ok);
+  const allowed = fits.length ? fits : unblocked;
+  const capped = (t) => t.items.some(([id]) => WEEKLY_CAP[id] && (expensiveCount[id] || 0) >= WEEKLY_CAP[id]);
+  const options = allowed.filter((t) => (useCount[t.id] || 0) < maxUses(t) && !capped(t));
   // Never fall back to the full list — a disliked meal must never be planned.
-  const finalPool = pool.length ? pool : (allowed.length ? allowed : list);
+  const finalPool = options.length ? options : (allowed.filter((t) => !capped(t)).length ? allowed.filter((t) => !capped(t)) : (allowed.length ? allowed : list));
 
-  // Weight selection by TRUE marginal cost: a meal using a protein we've already
-  // opened this week is cheap; one needing a brand-new pack carries that pack's
-  // full price. This stops the planner buying a 500g pack of mince to use 130g.
+  // Weighted by true marginal cost and by speed. Repeats get a mild nudge
+  // away, so reuse comes from cheap packs rather than the same dish forever.
   const weights = finalPool.map((t) => {
-    let cost = templateCost(t.items);
-    t.items.forEach(([id]) => {
-      if (PACK_COST[id] && !openedProteins.has(id)) cost += PACK_COST[id] * 0.8;
-    });
-    return 1 / Math.pow(Math.max(cost, 0.3), 1.5);
+    const cost = marginalCost(t, basket);
+    const repeat = Math.pow(0.7, useCount[t.id] || 0);
+    const freeze = needsFreezing(t, dayIdx) ? 0.85 : 1;
+    return (speedWeight(t.time) * repeat * freeze) / Math.pow(Math.max(cost, 0.4), 1.5);
   });
   const total = weights.reduce((a, w) => a + w, 0);
   let r = Math.random() * total;
@@ -163,7 +249,10 @@ function capMealCalories(meal) {
   return items;
 }
 
-function buildDayMeals(b, l, s, d, targets, dessert) {
+function buildDayMeals(b, l, s, d, fullTargets, dessert) {
+  const targets = dayTargets(fullTargets, [
+    b && { ...b, slot: "Breakfast" }, l && { ...l, slot: "Lunch" }, d && { ...d, slot: "Dinner" },
+  ]);
   const rawMeals = [
     { slot: "Breakfast", ...b, items: [...b.items] },
     { slot: "Lunch", ...l, items: [...l.items] },
@@ -216,7 +305,59 @@ function buildDayMeals(b, l, s, d, targets, dessert) {
 /** What the week actually costs to shop for. `leftovers` is what's already in the
  *  pantry; passing it makes the cap measure real spend rather than a full shop.
  *  Everything that checks the budget goes through here so the basis can't drift. */
-export const weekCost = (week, leftovers = {}) => buildGroceryList(week, leftovers).estimatedTotal;
+export const weekCost = (week, leftovers = {}) => buildGroceryList(week, leftovers).weeklyCost;
+
+/** Close what's left of each day's calorie and protein gap with cheap
+ *  fillers already in its meals, a step at a time, never past the cap.
+ *  Run after generation and after every trim, so a day rebuilt by a swap
+ *  gets topped up too: swapped days used to land ~150 kcal short. */
+function topUp(week, targets, budgetCap, leftovers = {}) {
+  // Every bump is checked against the real weekly cost before it's kept.
+  // Milk, sourdough and peanut butter are about 0.2p a kcal; rice pouches
+  // and granola nearer 0.3p.
+  const CHEAP_FILLERS = ["sourdough", "milk", "peanut_butter_g", "rice", "pasta", "sweet_potato", "naan", "granola", "chickpeas", "eggs"];
+  let runningWeek = week;
+  return week.map((day, dayIdx) => {
+    let meals = day.meals;
+    const dt = dayTargets(targets, meals);
+    for (let pass = 0; pass < 16; pass++) {
+      const tot = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
+      // This used to stop at 92%, which is most of why weeks came in ~200
+      // kcal short even with no budget limit at all.
+      if (tot.kcal >= dt.targetKcal * 0.98 && tot.protein >= dt.protein * 0.97) break;
+
+      let bumped = false;
+      const nextMeals = meals.map((m) => {
+        if (bumped || m.slot === "Shake" || m.slot === "Snack") return m;
+        const ceiling = SLOT_KCAL_CEILING[m.slot] || 900;
+        if (m.kcal >= ceiling) return m;
+        const target = m.items.find(([id]) => CHEAP_FILLERS.includes(id));
+        if (!target) return m;
+        const [fid, fqty] = target;
+        const ing = lookup(fid);
+        const isPerUnit = ing.unit === "each";
+        const cap = INGREDIENT_MAX_G[fid] ?? (isPerUnit ? 5 : 400);
+        if (fqty >= cap) return m;
+        const step = isPerUnit ? 1 : fid === "milk" ? 50 : 20;
+        const next = Math.min(cap, fqty + step);
+        const items = m.items.map(([id, q]) => (id === fid ? [id, next] : [id, q]));
+        bumped = true;
+        return { ...m, items, ...macrosForItems(items) };
+      });
+      if (!bumped) break;
+
+      // Would this bump push the whole week over budget? Check the real total,
+      // not just this day — only keep it if it doesn't.
+      const snapshot = runningWeek.map((d, i) => (i === dayIdx ? { ...d, meals: nextMeals } : d));
+      if (weekCost(snapshot, leftovers) > budgetCap) break;
+      meals = nextMeals;
+    }
+    const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
+    const result = { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
+    runningWeek = runningWeek.map((d, i) => (i === dayIdx ? result : d));
+    return result;
+  });
+}
 
 /** Shave the priciest protein portions until the shop fits. Only portions move,
  *  never which meal sits on which day, so this is safe to run after pins have
@@ -245,14 +386,15 @@ export function trimToBudget(week, targets, budgetCap, { leftovers = {}, floor =
       return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
     });
   }
-  return planned;
+  return topUp(planned, targets, budgetCap, leftovers);
 }
 
 /** Cheapest template the rules allow in a slot. Shared by the last-resort paths
  *  in both generation and swap rebalancing so they agree on what "cheapest" is. */
-export function cheapestTemplate(slot, blocked = {}, exclude = null) {
+export function cheapestTemplate(slot, blocked = {}, exclude = null, ok = null) {
   const all = templates[slot] || [];
   let allowed = all.filter((t) => !(blocked[slot] || []).includes(t.id));
+  if (ok && allowed.some(ok)) allowed = allowed.filter(ok);
   if (exclude) allowed = allowed.filter((t) => !exclude.has(t.id));
   const list = allowed.length ? allowed : (exclude ? [] : all);
   return [...list].sort((a, b) => templateCost(a.items) - templateCost(b.items))[0] || null;
@@ -277,6 +419,8 @@ export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pin
   const swapped = enforceBudget(week, targets, budgetCap, 20, held, blocked, leftovers);
   let out = trimToBudget(swapped, targets, budgetCap, { leftovers, floor: 100, passes: 30, hard: true });
   if (weekCost(out, leftovers) <= budgetCap) return out;
+  out = trimToBudget(packAwareRebalance(out, targets, budgetCap, { held, blocked, leftovers }), targets, budgetCap, { leftovers, floor: 100, passes: 30, hard: true });
+  if (weekCost(out, leftovers) <= budgetCap) return out;
 
   // enforceBudget only ever swaps in a template not already on the menu, to keep
   // the week varied. When the allowed set is small that runs out of room. Give up
@@ -286,7 +430,7 @@ export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pin
   const candidates = [];
   out.forEach((day, dayIdx) => day.meals.forEach((m) => {
     if (!["Breakfast", "Lunch", "Snack", "Dinner"].includes(m.slot)) return;
-    if (isHeld(day.day, m.slot)) return;
+    if (isHeld(day.day, m.slot) || m.eatOut) return;
     candidates.push({ dayIdx, slot: m.slot, cost: templateCost(m.items) });
   }));
   candidates.sort((a, b) => b.cost - a.cost);
@@ -297,11 +441,54 @@ export function rebalanceAfterSwap(week, targets, budgetCap, { protect = [], pin
     // reaching for the single cheapest converged the week onto one dish, which
     // is how a swap could occasionally leave 2 distinct dinners across 7 days.
     const onMenu = new Set(out.map((d) => d.meals.find((m) => m.slot === c.slot)?.id).filter(Boolean));
-    const tpl = cheapestTemplate(slotKey, blocked, onMenu) || cheapestTemplate(slotKey, blocked);
+    const ok = (t) => fitsDay(out, c.dayIdx, c.slot, t);
+    const tpl = cheapestTemplate(slotKey, blocked, onMenu, ok) || cheapestTemplate(slotKey, blocked, null, ok);
+    if (tpl && !ok(tpl)) continue;
     if (!tpl || out[c.dayIdx].meals.find((m) => m.slot === c.slot)?.id === tpl.id) continue;
     const next = out.map((d, i) => (i !== c.dayIdx ? d : setMealOnDay(d, c.slot, tpl, targets)));
     out = trimToBudget(next, targets, budgetCap, { leftovers, floor: 100, passes: 30, hard: true });
     if (weekCost(out, leftovers) <= budgetCap) break;
+  }
+  return out;
+}
+
+/** Swap meals by what they really save. enforceBudget ranks meals by price
+ *  per gram, which stopped meaning much once packs are bought whole: dropping
+ *  the "priciest" meal can save nothing if its chicken comes from a pack that's
+ *  already bought. This tries each allowed swap against the real weekly cost
+ *  and keeps the one that saves most, until the week fits. It's too slow to run
+ *  on every candidate, so it's only reached for after the cheaper passes fail.
+ *  Never drops lunch or dinner below 3 different meals, and never touches a
+ *  held slot. */
+function packAwareRebalance(week, targets, budgetCap, { held = [], blocked = {}, leftovers = {}, rounds = 10 } = {}) {
+  let out = week;
+  const isHeld = (day, slot) => held.some((h) => h.day === day && h.slot === slot);
+  for (let r = 0; r < rounds; r++) {
+    const now = weekCost(out, leftovers);
+    if (now <= budgetCap) break;
+    let best = null;
+    out.forEach((day, di) => ["Breakfast", "Lunch", "Snack", "Dinner"].forEach((slot) => {
+      if (isHeld(day.day, slot)) return;
+      const key = slot.toLowerCase();
+      const cur = day.meals.find((m) => m.slot === slot);
+      if (cur?.eatOut) return;
+      const counts = {};
+      out.forEach((d) => { const id = d.meals.find((m) => m.slot === slot)?.id; if (id) counts[id] = (counts[id] || 0) + 1; });
+      for (const tpl of templates[key] || []) {
+        if (tpl.id === cur?.id || (blocked[key] || []).includes(tpl.id) || (counts[tpl.id] || 0) >= maxUses(tpl)) continue;
+        if (!fitsDay(out, di, slot, tpl)) continue;
+        const next = out.map((d, i) => (i !== di ? d : setMealOnDay(d, slot, tpl, targets)));
+        if (slot === "Lunch" || slot === "Dinner") {
+          // A meal out isn't a dinner he cooks, so it doesn't count toward variety.
+          const distinct = new Set(next.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size;
+          if (distinct < 3) continue;
+        }
+        const c = weekCost(next, leftovers);
+        if (c < now - 0.01 && (!best || c < best.cost)) best = { week: next, cost: c };
+      }
+    }));
+    if (!best) break;
+    out = best.week;
   }
   return out;
 }
@@ -316,6 +503,7 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], block
     current.forEach((day, dayIdx) => {
       day.meals.forEach((meal) => {
         if (meal.slot !== "Lunch" && meal.slot !== "Dinner") return;
+        if (meal.eatOut) return;
         // Never swap out a meal the user pinned via a standing rule.
         if (pins.some((p) => p.day === day.day && p.slot === meal.slot)) return;
         const cost = templateCost(meal.items);
@@ -335,6 +523,7 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], block
     let best = null;
     templates[slotKey].forEach((tpl) => {
       if (tpl.id === worst.currentId || inUse.has(tpl.id) || blockedHere.includes(tpl.id)) return;
+      if (!fitsDay(current, worst.dayIdx, worst.slot, tpl)) return;
       const c = templateCost(tpl.items);
       if (c < worst.cost && (!best || c < best.cost)) best = { tpl, cost: c };
     });
@@ -346,7 +535,8 @@ function enforceBudget(week, targets, budgetCap, maxSwaps = 20, pins = [], block
       current.forEach((d) => d.meals.filter((m) => m.slot === worst.slot).forEach((m) => { counts[m.id] = (counts[m.id] || 0) + 1; }));
       templates[slotKey].forEach((tpl) => {
         if (tpl.id === worst.currentId || blockedHere.includes(tpl.id)) return;
-        if ((counts[tpl.id] || 0) >= 2) return; // hard cap: max 2 of the same meal per week
+        if (!fitsDay(current, worst.dayIdx, worst.slot, tpl)) return;
+        if ((counts[tpl.id] || 0) >= maxUses(tpl)) return; // never past a meal's weekly limit
         const c = templateCost(tpl.items);
         if (c < worst.cost && (!best || c < best.cost)) best = { tpl, cost: c };
       });
@@ -410,7 +600,8 @@ function ensureFavourites(week, targets, options = {}, placed = []) {
     const tpl = templates[slotKey].find((t) => t.id === id);
     const slot = slotKey.charAt(0).toUpperCase() + slotKey.slice(1);
     // Don't displace a standing rule — those outrank a passing craving.
-    const free = out.map((_, i) => i).filter((i) => !pins.some((p) => p.day === out[i].day && p.slot === slot));
+    const free = out.map((_, i) => i).filter((i) => !pins.some((p) => p.day === out[i].day && p.slot === slot)
+      && !out[i].meals.find((m) => m.slot === slot)?.eatOut && fitsDay(out, i, slot, tpl));
     if (!free.length) continue;
     const at = free[Math.floor(Math.random() * free.length)];
     out = out.map((d, i) => (i !== at ? d : setMealOnDay(d, slot, tpl, targets)));
@@ -423,42 +614,54 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
   // The week's day order comes from the anchor: a Tuesday shop gives Tue…Mon.
   const { favour = [], blocked = {}, leftovers = {}, days: dayOrder = DAY_NAMES } = options;
   const pins = usablePins(options.pins, blocked);
-  const used = { breakfast: new Set(), lunch: new Set(), dinner: new Set(), snack: new Set(), dessert: new Set() };
+  const outSlots = options.out || [];
+  const isOut = (day, slot) => outSlots.some((o) => o.day === day && o.slot === slot);
+  const used = { breakfast: {}, lunch: {}, dinner: {}, snack: {}, dessert: {} };
   const expensiveCount = {};
   const days = dayOrder;
 
-  const openedProteins = new Set();
+  // Fruit is once or twice a week. One fruit dessert on a random night for
+  // the sweet craving; anything else with fruit shares what's left of the
+  // weekly allowance.
+  const dessertPool = templates.dessert.filter((x) => !(blocked.dessert || []).includes(x.id));
+  const dessertTpl = dessertPool.length ? dessertPool[Math.floor(Math.random() * dessertPool.length)] : null;
+  const dessertDay = Math.floor(Math.random() * days.length);
+  let fruitUsed = dessertTpl ? 1 : 0;
 
-  // Pick just 3 desserts for the whole week and rotate them. Seven different
-  // fruits means seven things to buy and most of them going off.
-  const dessertPool = templates.dessert.filter((x) => !(blocked.dessert || []).includes(x.id))
-    .sort(() => Math.random() - 0.5).slice(0, 3);
+  const pinnedTpl = (day, slot) => {
+    const pin = pins.find((p) => p.day === day && p.slot === slot);
+    if (!pin) return null;
+    return (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null;
+  };
+
+  // Standing rules are known before anything else is chosen, so their packs
+  // go in the basket first: with burgers on Friday already bought, another
+  // burger night that week only costs a bun's share.
+  const basket = {};
+  days.forEach((day) => ["Breakfast", "Lunch", "Snack", "Dinner"].forEach((slot) => {
+    const tpl = pinnedTpl(day, slot);
+    if (tpl) { addToBasket(basket, tpl); const k = slot.toLowerCase(); used[k][tpl.id] = (used[k][tpl.id] || 0) + 1; if (hasFruit(tpl)) fruitUsed++; }
+  }));
 
   const rawWeek = days.map((day, dayIndex) => {
-    const b = pickNonRepeating(templates.breakfast, used.breakfast, expensiveCount, openedProteins, blocked.breakfast || []);
-    const l = pickNonRepeating(templates.lunch, used.lunch, expensiveCount, openedProteins, blocked.lunch || []);
-    const s = pickNonRepeating(templates.snack, used.snack, expensiveCount, openedProteins, blocked.snack || []);
-    const d = pickNonRepeating(templates.dinner, used.dinner, expensiveCount, openedProteins, blocked.dinner || []);
-    const ds = dessertPool[dayIndex % dessertPool.length];
-    [b, l, s, d].forEach((tpl) => tpl.items.forEach(([id]) => { if (PACK_COST[id]) openedProteins.add(id); }));
-    [b, l, s, d].forEach((tpl, i) => {
-      used[["breakfast", "lunch", "snack", "dinner"][i]].add(tpl.id);
-      tpl.items.forEach(([id]) => {
-        if (WEEKLY_CAP[id]) expensiveCount[id] = (expensiveCount[id] || 0) + 1;
-      });
-    });
-    // Standing rules pin a specific meal to a day/slot before costing, so the
-    // budget logic compensates elsewhere rather than fighting the rule later.
-    const pinFor = (slot) => {
-      const pin = pins.find((p) => p.day === day && p.slot === slot);
-      if (!pin) return null;
-      const list = templates[slot.toLowerCase()] || [];
-      return list.find((x) => x.id === pin.templateId) || null;
+    const choose = (slot) => {
+      const k = slot.toLowerCase();
+      if (isOut(day, slot)) return EAT_OUT;
+      if (pinnedTpl(day, slot)) return pinnedTpl(day, slot); // already counted above
+      const ok = (t) => !lateOn(t, dayIndex) && (!hasFruit(t) || fruitUsed < FRUIT_PER_WEEK);
+      const tpl = pickNonRepeating(templates[k], used[k], expensiveCount, basket, blocked[k] || [], ok, dayIndex);
+      used[k][tpl.id] = (used[k][tpl.id] || 0) + 1;
+      if (hasFruit(tpl)) fruitUsed++;
+      addToBasket(basket, tpl);
+      tpl.items.forEach(([id]) => { if (WEEKLY_CAP[id]) expensiveCount[id] = (expensiveCount[id] || 0) + 1; });
+      return tpl;
     };
-    const bb = pinFor("Breakfast") || b;
-    const ll = pinFor("Lunch") || l;
-    const ss = pinFor("Snack") || s;
-    const dd = pinFor("Dinner") || d;
+    const bb = choose("Breakfast");
+    const ll = choose("Lunch");
+    const ss = choose("Snack");
+    const dd = choose("Dinner");
+    const ds = dayIndex === dessertDay ? dessertTpl : null;
+    if (ds) addToBasket(basket, ds);
 
     const { meals, totals } = buildDayMeals(bb, ll, ss, dd, targets, ds);
     return { day, meals, totals };
@@ -486,50 +689,7 @@ function generateCandidateWeek(targets, budgetCap = 65, options = {}) {
       return { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
     });
   }
-  // Final top-up: close remaining calorie/protein gaps using CHEAP dense staples
-  // (rice, potato, oats, eggs) — but never past the budget cap. Every other pass
-  // in this pipeline checks cost before acting; this one didn't, so it could add
-  // fillers that pushed the week over budget with no reliable way back — the trim
-  // pass below only touches protein anchors, which the earlier trim pass has
-  // usually already squeezed close to their floor by this point.
-  const CHEAP_FILLERS = ["rice", "potato", "sweet_potato", "oats", "rice_noodles", "pita", "sourdough", "eggs"];
-  let runningWeek = planned;
-  planned = planned.map((day, dayIdx) => {
-    let meals = day.meals;
-    for (let pass = 0; pass < 10; pass++) {
-      const tot = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-      if (tot.kcal >= targets.targetKcal * 0.92 && tot.protein >= targets.protein * 0.95) break;
-
-      let bumped = false;
-      const nextMeals = meals.map((m) => {
-        if (bumped || m.slot === "Shake" || m.slot === "Snack") return m;
-        const ceiling = SLOT_KCAL_CEILING[m.slot] || 900;
-        if (m.kcal >= ceiling) return m;
-        const target = m.items.find(([id]) => CHEAP_FILLERS.includes(id));
-        if (!target) return m;
-        const [fid, fqty] = target;
-        const ing = lookup(fid);
-        const isPerUnit = ing.unit === "each";
-        const cap = INGREDIENT_MAX_G[fid] ?? (isPerUnit ? 5 : 400);
-        if (fqty >= cap) return m;
-        const next = isPerUnit ? Math.min(cap, fqty + 1) : Math.min(cap, fqty + 20);
-        const items = m.items.map(([id, q]) => (id === fid ? [id, next] : [id, q]));
-        bumped = true;
-        return { ...m, items, ...macrosForItems(items) };
-      });
-      if (!bumped) break;
-
-      // Would this bump push the whole week over budget? Check the real total,
-      // not just this day — only keep it if it doesn't.
-      const snapshot = runningWeek.map((d, i) => (i === dayIdx ? { ...d, meals: nextMeals } : d));
-      if (weekCost(snapshot, leftovers) > budgetCap) break;
-      meals = nextMeals;
-    }
-    const totals = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-    const result = { day: day.day, meals, totals: { kcal: Math.round(totals.kcal), protein: Math.round(totals.protein) } };
-    runningWeek = runningWeek.map((d, i) => (i === dayIdx ? result : d));
-    return result;
-  });
+  planned = topUp(planned, targets, budgetCap, leftovers);
 
   // If the top-up nudged us back over budget, trim protein anchors — cutting the
   // priciest proteins hardest, and only down to a floor that keeps protein on target.
@@ -592,9 +752,10 @@ function scoreWeek(week, targets, budgetCap, favour = [], leftovers = {}) {
   if (cost > budgetCap) score += (cost - budgetCap) * 200;
 
   week.forEach((d) => {
-    score += Math.abs(d.totals.kcal - targets.targetKcal) * 0.05;
+    const dt = dayTargets(targets, d.meals);
+    score += Math.abs(d.totals.kcal - dt.targetKcal) * 0.05;
     // Missing protein matters much more than slightly exceeding it.
-    const pDiff = targets.protein - d.totals.protein;
+    const pDiff = dt.protein - d.totals.protein;
     score += pDiff > 0 ? pDiff * 1.5 : Math.abs(pDiff) * 0.3;
   });
 
@@ -604,11 +765,17 @@ function scoreWeek(week, targets, budgetCap, favour = [], leftovers = {}) {
   week.forEach((d) => d.meals.forEach((m) => (m.items || []).forEach(([id]) => { if (id !== "whey") distinct.add(id); })));
   score += Math.max(0, distinct.size - 20) * 25;
 
-  // Reward variety: penalise repeated main meals.
-  ["Breakfast", "Lunch", "Dinner"].forEach((slot) => {
+  // Reward variety at lunch and dinner. Breakfast is left alone: the same
+  // granola bowl every morning is what he actually eats. Meals meant to recur
+  // (burger night, max 4+) only cost variety past their second appearance.
+  const byId = Object.fromEntries(Object.values(templates).flat().map((t) => [t.id, t]));
+  ["Lunch", "Dinner"].forEach((slot) => {
     const counts = {};
     week.forEach((d) => d.meals.filter((m) => m.slot === slot).forEach((m) => { counts[m.id] = (counts[m.id] || 0) + 1; }));
-    Object.values(counts).forEach((c) => { if (c > 1) score += (c - 1) * 12; });
+    Object.entries(counts).forEach(([id, c]) => {
+      const free = maxUses(byId[id] || {}) >= 4 ? 2 : 1;
+      if (c > free) score += (c - free) * 8;
+    });
   });
 
   // Reward meals the user has asked for (cravings / standing preferences)
@@ -711,20 +878,33 @@ export function interpretRules(rules = []) {
 function cheapestWeek(targets, budgetCap, options = {}) {
   const { blocked = {}, leftovers = {}, days: dayOrder = DAY_NAMES } = options;
   const pins = usablePins(options.pins, blocked);
-  const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner", "dessert"].map((sl) => [sl, cheapestTemplate(sl, blocked)]));
-
-  const week = dayOrder.map((day) => {
+  // No fruit at all here: it's the floor of what a week costs, and fruit is
+  // optional. Each day takes the cheapest meal that's still fresh by then.
+  const noFruit = (t) => !hasFruit(t);
+  // Cheapest still has to be a week he'd eat: no lunch or dinner more than
+  // twice, which leaves at least 3 different ones. Without this the floor
+  // week was one dinner six nights running.
+  const uses = {};
+  const week = dayOrder.map((day, di) => {
+    const fresh = (t) => noFruit(t) && !lateOn(t, di);
+    const pick = Object.fromEntries(["breakfast", "lunch", "snack", "dinner"].map((sl) => {
+      const limit = (t) => (uses[`${sl}:${t.id}`] || 0) < (sl === "lunch" || sl === "dinner" ? Math.min(2, maxUses(t)) : maxUses(t));
+      const tpl = cheapestTemplate(sl, blocked, null, (t) => fresh(t) && limit(t)) || cheapestTemplate(sl, blocked, null, fresh);
+      if (tpl) uses[`${sl}:${tpl.id}`] = (uses[`${sl}:${tpl.id}`] || 0) + 1;
+      return [sl, tpl];
+    }));
     const pinned = (slot) => {
       const pin = pins.find((p) => p.day === day && p.slot === slot);
       return pin ? (templates[slot.toLowerCase()] || []).find((x) => x.id === pin.templateId) || null : null;
     };
+    const out = (slot) => ((options.out || []).some((o) => o.day === day && o.slot === slot) ? EAT_OUT : null);
     const { meals, totals } = buildDayMeals(
-      pinned("Breakfast") || pick.breakfast,
-      pinned("Lunch") || pick.lunch,
+      out("Breakfast") || pinned("Breakfast") || pick.breakfast,
+      out("Lunch") || pinned("Lunch") || pick.lunch,
       pinned("Snack") || pick.snack,
-      pinned("Dinner") || pick.dinner,
+      out("Dinner") || pinned("Dinner") || pick.dinner,
       targets,
-      pinned("Dessert") || pick.dessert
+      pinned("Dessert") || null
     );
     return { day, meals, totals };
   });
@@ -746,6 +926,13 @@ export function appliedRules(week, matched = []) {
 }
 
 export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {}) {
+  // Eating out beats a standing rule for that slot: he isn't home to cook it.
+  // Only slots that exist on the plan's days count.
+  if (options.out?.length) {
+    const days = options.days || DAY_NAMES;
+    const out = options.out.filter((o) => days.includes(o.day) && ["Breakfast", "Lunch", "Dinner"].includes(o.slot));
+    options = { ...options, out, pins: (options.pins || []).filter((p) => !out.some((o) => o.day === p.day && o.slot === p.slot)) };
+  }
   // Pins narrow the search space, so allow more tries to find an affordable fit.
   if (options.pins?.length) attempts = Math.max(attempts, 120);
   const leftovers = options.leftovers || {};
@@ -778,6 +965,10 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
   if (!bestCompliant && best) {
     let salvage = enforceBudget(best, targets, budgetCap, 20, usablePins(options.pins, options.blocked), options.blocked || {}, leftovers);
     salvage = trimToBudget(salvage, targets, budgetCap, { leftovers, floor: 100, passes: 20, hard: true });
+    if (weekCost(salvage, leftovers) > budgetCap) {
+      salvage = packAwareRebalance(salvage, targets, budgetCap, { held: usablePins(options.pins, options.blocked), blocked: options.blocked || {}, leftovers });
+      salvage = trimToBudget(salvage, targets, budgetCap, { leftovers, floor: 100, passes: 20, hard: true });
+    }
 
     // Still over. Give up variety gradually — swap the priciest meals for cheaper
     // ones and stop the moment it fits. Collapsing straight to the cheapest
