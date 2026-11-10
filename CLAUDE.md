@@ -157,8 +157,11 @@ Re-anchored to real Ocado orders in Nov 2026. With his constraints (pouches,
 fruit twice a week, no tinned fish, granola at a box a week) the lowest cap
 that hits 2443 kcal and 174g protein in ~90% of weeks is £68 at current
 offers and £72 at shelf prices (Estate Dairy and Warburtons buns are on
-offer). Below ~£64 it falls off a cliff. Plans land at ~98% of calories by
-design: the top-up stops at 98%.
+offer). Below ~£64 it falls off a cliff. The top-up runs each day to 100% of
+its calorie and protein targets (it stopped at 92%, then 98%; neither had a
+reason). Lunch can take two rice pouches and a 1,150 kcal ceiling, because one
+pouch was the binding limit on a third of planned days. Granola stays at 50g:
+that's his box-a-week rule, not a planner limit.
 
 The old ~200 kcal gap had three causes, now fixed: the top-up stopped at 92%,
 several meals had nothing to scale, and the only fillers were pouches and
