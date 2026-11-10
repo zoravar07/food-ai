@@ -10,7 +10,12 @@ export const proteins = [
   { id: "steak", name: "Sirloin steak", kcal: 206, protein: 29, carbs: 0, fat: 9, storageDays: { fridge: 3, freezer: 180 }, tags: ["treat"] },
   { id: "beef_mince_5", name: "Beef mince (5% fat)", kcal: 137, protein: 22, carbs: 0, fat: 5, potassium: 318, storageDays: { fridge: 2, freezer: 120 }, tags: ["versatile"] },
   { id: "turkey_mince", name: "Turkey mince", kcal: 120, protein: 21, carbs: 0, fat: 3.5, storageDays: { fridge: 2, freezer: 120 }, tags: ["lean"] },
-  { id: "eggs", name: "Eggs", kcal: 143, protein: 13, carbs: 1, fat: 10, potassium: 126, unit: "each", kcalPerUnit: 78, proteinPerUnit: 6.5, storageDays: { fridge: 21, freezer: 0 }, tags: ["breakfast"] },
+  { id: "eggs", name: "Eggs", kcal: 143, protein: 13, carbs: 1, fat: 10, potassium: 126, unit: "each", gPerUnit: 55, kcalPerUnit: 78, proteinPerUnit: 6.5, storageDays: { fridge: 21, freezer: 0 }, tags: ["breakfast"] },
+  // Ready-made patties, which is what he actually buys for burger night, not mince.
+  { id: "qp_burger", name: "Quarter pounder beef burger", kcal: 257, protein: 26, carbs: 3.3, fat: 15, fibre: 0.5, potassium: 300, unit: "each", gPerUnit: 113.5, kcalPerUnit: 292, proteinPerUnit: 29.5, storageDays: { fridge: 3, freezer: 90 }, tags: ["treat"] },
+  { id: "lean_burger", name: "Lean beef burger (3% fat)", kcal: 121, protein: 19.4, carbs: 4.4, fat: 2.8, potassium: 300, unit: "each", gPerUnit: 150, kcalPerUnit: 182, proteinPerUnit: 29.1, storageDays: { fridge: 3, freezer: 90 }, tags: ["lean"] },
+  // Bought as a snack on its own, never cooked into a meal.
+  { id: "pepperoni", name: "Sliced pepperoni", kcal: 479, protein: 22, carbs: 1, fat: 43, potassium: 300, storageDays: { fridge: 21, freezer: 0 }, tags: ["snack"] },
   { id: "pork_tenderloin", name: "Pork tenderloin", kcal: 143, protein: 26, carbs: 0, fat: 3.5, storageDays: { fridge: 3, freezer: 180 }, tags: ["lean", "new"] },
   { id: "whey", name: "Whey protein (1 scoop ~30g)", kcal: 120, protein: 24, carbs: 3, fat: 1.5, unit: "scoop", storageDays: { fridge: 0, freezer: 0 }, tags: ["standalone_only"] },
 ];
@@ -19,31 +24,45 @@ export const pantry = [
   { id: "breadcrumbs", name: "Breadcrumbs / panko", kcal: 395, protein: 13, carbs: 72, fat: 5, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
   { id: "flour", name: "Plain flour", kcal: 364, protein: 10, carbs: 76, fat: 1, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
   { id: "cheese", name: "Cheddar cheese", kcal: 402, protein: 25, carbs: 1.3, fat: 33, storageDays: { fridge: 21, freezer: 180 } },
-  { id: "tortilla", name: "Flour tortilla", kcal: 289, protein: 8, carbs: 48, fat: 7, unit: "each", kcalPerUnit: 145, proteinPerUnit: 4, storageDays: { fridge: 10, freezer: 90 } },
+  { id: "tortilla", name: "Flour tortilla", kcal: 289, protein: 8, carbs: 48, fat: 7, unit: "each", gPerUnit: 50, kcalPerUnit: 145, proteinPerUnit: 4, storageDays: { fridge: 10, freezer: 90 } },
 ];
 
 export const carbs = [
-  { id: "rice", name: "Jasmine/basmati rice", kcal: 130, protein: 2.7, carbs: 28, fat: 0.3, fibre: 0.4, potassium: 35, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
+  // Quantities are cooked weight, which is how a microwave pouch is sold (250g).
+  { id: "rice", name: "Microwave basmati rice", kcal: 155, protein: 3.2, carbs: 31, fat: 1.9, fibre: 0.6, potassium: 35, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 270 },
   { id: "potato", name: "Potato", kcal: 87, protein: 2, carbs: 20, fat: 0.1, fibre: 2.2, potassium: 425, storageDays: { fridge: 21, freezer: 0 } },
   { id: "sweet_potato", name: "Sweet potato", kcal: 86, protein: 1.6, carbs: 20, fat: 0.1, fibre: 3, potassium: 337, storageDays: { fridge: 14, freezer: 0 } },
-  { id: "pasta", name: "Pasta", kcal: 131, protein: 5, carbs: 25, fat: 1.1, fibre: 1.8, potassium: 44, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 730 },
-  { id: "pita", name: "Pita / flatbread", kcal: 275, protein: 9, carbs: 55, fat: 1.2, unit: "each", kcalPerUnit: 165, proteinPerUnit: 5.5, storageDays: { fridge: 5, freezer: 90 } },
-  { id: "sourdough", name: "Sourdough", kcal: 289, protein: 9, carbs: 56, fat: 2, fibre: 2.4, potassium: 100, storageDays: { fridge: 5, freezer: 90 } },
+  { id: "pasta", name: "Rigatoni", kcal: 131, protein: 5, carbs: 25, fat: 1.1, fibre: 1.8, potassium: 44, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 730 },
+  { id: "pita", name: "Pita / flatbread", kcal: 275, protein: 9, carbs: 55, fat: 1.2, unit: "each", gPerUnit: 60, kcalPerUnit: 165, proteinPerUnit: 5.5, storageDays: { fridge: 5, freezer: 90 } },
+  // Jason's The Great White, which he's started buying. Counted in slices:
+  // a 450g loaf is about 7 (Ocado label). Potassium isn't on the label, so
+  // it's a typical white sourdough figure.
+  { id: "sourdough", name: "Sourdough", kcal: 237, protein: 9.7, carbs: 46.4, fat: 0.7, fibre: 3.0, potassium: 120, sodium: 320, unit: "each", gPerUnit: 64, kcalPerUnit: 152, proteinPerUnit: 6.2, storageDays: { fridge: 5, freezer: 30 } },
   { id: "oats", name: "Oats", kcal: 389, protein: 17, carbs: 66, fat: 7, fibre: 10, potassium: 429, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
+  { id: "naan", name: "Plain naan", kcal: 271, protein: 7.9, carbs: 48, fat: 4.5, fibre: 2.5, potassium: 120, unit: "each", gPerUnit: 120, kcalPerUnit: 325, proteinPerUnit: 9.5, storageDays: { fridge: 5, freezer: 90 } },
+  { id: "burger_bun", name: "Brioche burger bun", kcal: 313, protein: 9.3, carbs: 52, fat: 6.8, fibre: 2.5, potassium: 120, unit: "each", gPerUnit: 62.5, kcalPerUnit: 196, proteinPerUnit: 5.8, storageDays: { fridge: 5, freezer: 90 } },
+  { id: "granola", name: "High-protein granola", kcal: 416, protein: 21, carbs: 44, fat: 15, fibre: 18, potassium: 450, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 180 },
   { id: "rice_noodles", name: "Rice noodles", kcal: 109, protein: 1.8, carbs: 25, fat: 0.2, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
 ];
 
 export const veg = [
-  { id: "broccoli", name: "Broccoli", kcal: 34, protein: 2.8, carbs: 7, fat: 0.4, fibre: 2.6, potassium: 316, storageDays: { fridge: 7, freezer: 240 } },
+  // He doesn't buy fresh veg, so the veg he'll actually eat is frozen: no
+  // waste, microwaves in minutes.
+  { id: "broccoli", name: "Frozen broccoli florets", kcal: 34, protein: 2.8, carbs: 4, fat: 0.4, fibre: 2.6, potassium: 316, storageDays: { fridge: 2, freezer: 365 } },
+  { id: "peas", name: "Frozen garden peas", kcal: 71, protein: 5.4, carbs: 9.7, fat: 0.8, fibre: 5.1, potassium: 244, storageDays: { fridge: 2, freezer: 365 } },
   { id: "asparagus", name: "Asparagus", kcal: 20, protein: 2.2, carbs: 3.9, fat: 0.1, storageDays: { fridge: 4, freezer: 240 } },
-  { id: "spinach", name: "Spinach / leafy greens", kcal: 23, protein: 2.9, carbs: 3.6, fat: 0.4, fibre: 2.2, potassium: 558, storageDays: { fridge: 5, freezer: 240 } },
+  { id: "spinach", name: "Frozen leaf spinach", kcal: 23, protein: 2.9, carbs: 1.1, fat: 0.4, fibre: 2.2, potassium: 466, storageDays: { fridge: 2, freezer: 365 } },
   { id: "cucumber", name: "Cucumber", kcal: 15, protein: 0.7, carbs: 3.6, fat: 0.1, fibre: 0.5, potassium: 147, storageDays: { fridge: 7, freezer: 0 } },
   { id: "zucchini", name: "Zucchini / courgette", kcal: 17, protein: 1.2, carbs: 3.1, fat: 0.3, storageDays: { fridge: 5, freezer: 240 } },
   { id: "peppers", name: "Bell peppers", kcal: 31, protein: 1, carbs: 6, fat: 0.3, fibre: 2.1, potassium: 211, storageDays: { fridge: 10, freezer: 240 } },
   { id: "cherry_tomato", name: "Cherry tomatoes", kcal: 18, protein: 0.9, carbs: 3.9, fat: 0.2, fibre: 1.2, potassium: 237, storageDays: { fridge: 7, freezer: 0 } },
   { id: "mushroom", name: "Mushroom", kcal: 22, protein: 3.1, carbs: 3.3, fat: 0.3, storageDays: { fridge: 5, freezer: 240 } },
   { id: "celery", name: "Celery", kcal: 16, protein: 0.7, carbs: 3, fat: 0.2, storageDays: { fridge: 14, freezer: 0 } },
-  { id: "edamame", name: "Edamame", kcal: 121, protein: 12, carbs: 8.9, fat: 5, storageDays: { fridge: 0, freezer: 300 } },
+  { id: "edamame", name: "Frozen edamame beans", kcal: 142, protein: 13, carbs: 3.6, fat: 6.6, fibre: 5, potassium: 436, storageDays: { fridge: 2, freezer: 365 } },
+  // Tinned pulses: drained weight. Cheapest fibre there is.
+  { id: "chickpeas", name: "Chickpeas (tinned)", kcal: 122, protein: 6.4, carbs: 14, fat: 2.7, fibre: 8.1, potassium: 172, storageDays: { fridge: 2, freezer: 0 }, pantryLife: 730 },
+  { id: "kidney_beans", name: "Red kidney beans (tinned)", kcal: 100, protein: 6.9, carbs: 13.5, fat: 0.6, fibre: 6.7, potassium: 300, storageDays: { fridge: 2, freezer: 0 }, pantryLife: 730 },
+  { id: "guacamole", name: "Guacamole", kcal: 158, protein: 2.1, carbs: 2, fat: 14, fibre: 6.8, potassium: 400, storageDays: { fridge: 3, freezer: 0 } },
   { id: "avocado", name: "Avocado", kcal: 160, protein: 2, carbs: 8.5, fat: 15, fibre: 6.7, potassium: 485, storageDays: { fridge: 5, freezer: 0 } },
 ];
 
@@ -52,17 +71,18 @@ export const fruit = [
   { id: "orange", name: "Orange", kcal: 47, protein: 0.9, carbs: 12, fat: 0.1, fibre: 2.4, potassium: 181, storageDays: { fridge: 21, freezer: 0 } },
   { id: "pineapple", name: "Pineapple", kcal: 50, protein: 0.5, carbs: 13, fat: 0.1, fibre: 1.4, potassium: 109, storageDays: { fridge: 5, freezer: 180 } },
   { id: "grapes", name: "Grapes", kcal: 69, protein: 0.7, carbs: 18, fat: 0.2, fibre: 0.9, potassium: 191, storageDays: { fridge: 7, freezer: 0 } },
-  { id: "berries", name: "Mixed berries", kcal: 50, protein: 0.8, carbs: 12, fat: 0.3, fibre: 5, potassium: 150, storageDays: { fridge: 5, freezer: 240 } },
+  { id: "berries", name: "Frozen strawberries", kcal: 32, protein: 0.7, carbs: 7.7, fat: 0.3, fibre: 2, potassium: 153, storageDays: { fridge: 2, freezer: 240 } },
   { id: "watermelon", name: "Watermelon", kcal: 30, protein: 0.6, carbs: 8, fat: 0.2, storageDays: { fridge: 7, freezer: 0 } },
   { id: "banana", name: "Banana", kcal: 89, protein: 1.1, carbs: 23, fat: 0.3, fibre: 2.6, potassium: 358, storageDays: { fridge: 5, freezer: 60 } },
   { id: "apple", name: "Apple", kcal: 52, protein: 0.3, carbs: 14, fat: 0.2, storageDays: { fridge: 21, freezer: 0 } },
-  { id: "mango", name: "Mango", kcal: 60, protein: 0.8, carbs: 15, fat: 0.4, storageDays: { fridge: 5, freezer: 240 } },
+  { id: "mango", name: "Frozen mango chunks", kcal: 52, protein: 0.7, carbs: 10, fat: 0.6, fibre: 1.6, potassium: 168, storageDays: { fridge: 2, freezer: 365 } },
 ];
 
 export const dairy = [
   { id: "milk", name: "Milk (semi-skimmed)", kcal: 50, protein: 3.6, carbs: 4.8, fat: 1.8, potassium: 150, storageDays: { fridge: 7, freezer: 0 } },
   { id: "coconut_water", name: "Coconut water", kcal: 19, protein: 0.7, carbs: 3.7, fat: 0.2, potassium: 250, storageDays: { fridge: 5, freezer: 0 } },
-  { id: "greek_yoghurt", name: "Greek yoghurt", kcal: 97, protein: 9, carbs: 3.6, fat: 5, potassium: 141, storageDays: { fridge: 10, freezer: 0 } },
+  // The Estate Dairy 10% label: the 10% is fat, not protein.
+  { id: "greek_yoghurt", name: "Greek yoghurt", kcal: 166, protein: 9.8, carbs: 4.6, fat: 10.6, potassium: 141, storageDays: { fridge: 10, freezer: 0 } },
   { id: "feta", name: "Feta", kcal: 264, protein: 14, carbs: 4, fat: 21, storageDays: { fridge: 14, freezer: 0 } },
 ];
 
@@ -78,17 +98,26 @@ export const sauces = [
   { id: "honey", name: "Honey", tags: ["breakfast", "all"], pantryLife: 1000 },
 ];
 
+// Sauces and rubs that go into meals. The `sauces` list above is flavour tags
+// only; these have macros and prices so they show up on the shop.
+export const cookingSauces = [
+  { id: "tikka_sauce", name: "Tikka masala sauce", kcal: 71, protein: 1.6, carbs: 8.3, fat: 3.2, fibre: 1.5, potassium: 200, storageDays: { fridge: 3, freezer: 0 } },
+  { id: "pasta_sauce", name: "Tomato pasta sauce", kcal: 41, protein: 1.5, carbs: 6.8, fat: 0.5, fibre: 1.5, potassium: 300, storageDays: { fridge: 5, freezer: 0 } },
+  { id: "teriyaki_sauce", name: "Teriyaki sauce", kcal: 110, protein: 3, carbs: 22, fat: 1, storageDays: { fridge: 28, freezer: 0 }, pantryLife: 365 },
+  { id: "peri_sauce", name: "Peri-peri sauce", kcal: 72, protein: 0.9, carbs: 4.4, fat: 5.6, storageDays: { fridge: 42, freezer: 0 }, pantryLife: 365 },
+  { id: "peri_rub", name: "Peri-peri seasoning rub", kcal: 250, protein: 8, carbs: 40, fat: 5, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
+];
+
 // Disliked / excluded — the planner must never select these
 export const excluded = ["corn"];
 
 export const fats = [
   { id: "peanut_butter_g", name: "Peanut butter", kcal: 588, protein: 25, carbs: 20, fat: 50, fibre: 6, potassium: 649, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 180 },
-  { id: "olive_oil_g", name: "Olive oil", kcal: 884, protein: 0, carbs: 0, fat: 100, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 540 },
+  { id: "olive_oil_g", name: "Olive oil spray", kcal: 884, protein: 0, carbs: 0, fat: 100, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 540 },
   { id: "sesame_oil_g", name: "Sesame oil", kcal: 884, protein: 0, carbs: 0, fat: 100, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 365 },
-  { id: "tuna_tin", name: "Tuna tin (~145g drained)", kcal: 116, protein: 26, carbs: 0, fat: 1, unit: "each", kcalPerUnit: 116, proteinPerUnit: 26, storageDays: { fridge: 0, freezer: 0 }, pantryLife: 730 },
 ];
 
-export const allIngredients = [...proteins, ...carbs, ...veg, ...fruit, ...dairy, ...pantry, ...fats];
+export const allIngredients = [...proteins, ...carbs, ...veg, ...fruit, ...dairy, ...pantry, ...fats, ...cookingSauces];
 
 
 
@@ -148,9 +177,7 @@ export const purchaseUnits = {
   feta:          { unit: "block", perUnit: 200, size: "200g" },
   tortilla:      { unit: "pack of 8", perUnit: 1, boxOf: 8 },
   pita:          { unit: "pack of 6", perUnit: 1, boxOf: 6 },
-  sourdough:     { unit: "loaf", perUnit: 800, size: "800g" },
   edamame:       { unit: "frozen bag", perUnit: 500, size: "500g", bulk: true },
-  tuna_tin:      { unit: "tin", perUnit: 145, size: "145g" },
 };
 
 // Plain-English shopping guidance. What good looks like, what to avoid.
@@ -252,6 +279,8 @@ export const shoppingGuide = {
 };
 
 // Rough UK price estimates — per 100g unless the ingredient is unit-priced (eggs).
+// Only used now for things that have never turned up in one of his orders;
+// anything he actually buys is priced from `products` below.
 export const pricePer100g = {
   chicken_breast: 0.9, chicken_thigh: 0.7, salmon: 2.2, steak: 2.6, beef_mince_5: 1.1,
   turkey_mince: 1.0, pork_tenderloin: 1.3, rice: 0.15, potato: 0.1, sweet_potato: 0.2,
@@ -261,13 +290,212 @@ export const pricePer100g = {
   avocado: 0.8, berries: 1.2, watermelon: 0.15, banana: 0.2, apple: 0.25, mango: 0.4,
   greek_yoghurt: 0.28, feta: 1.0, kiwi: 0.5, orange: 0.25, pineapple: 0.3, grapes: 0.6, milk: 0.09, coconut_water: 0.25, breadcrumbs: 0.35, peanut_butter_g: 0.6, olive_oil_g: 0.7, sesame_oil_g: 1.2, flour: 0.15, cheese: 0.9, tortilla: 0.45,
 };
-export const priceEach = { eggs: 0.28, tuna_tin: 1.1 };
+export const priceEach = { eggs: 0.28 };
+
+// What he actually buys, taken from his Ocado orders (27 Sep – 3 Nov 2026).
+// `size` is in the ingredient's own unit: grams (ml count as grams), or for an
+// ingredient counted `each`, how many come in the pack.
+//   fixed       the same product every order
+//   otherwise   a category: `packs` are the products he switches between and
+//               `default` is the one to plan around
+//   lastsWeeks  a cupboard staple opened once and used across several weeks.
+//               Its weekly cost is the pack spread over that many weeks, not
+//               the whole pack every week.
+//   life        last day it's still good, counted from delivery (day 0).
+//               From Ocado's "Life Xd+" guarantee, which excludes delivery
+//               day, or from what he's told me when Ocado doesn't say.
+//   freezable   can go in the freezer on delivery day, so a meal after
+//               `life` is fine as long as the list says to freeze it.
+//   opened      days a pack keeps once opened. Uses spread wider than that
+//               need another pack, and the list buys it.
+//   checked     false where the price or macros came from a web lookup rather
+//               than one of his receipts or a label — worth a look on Ocado.
+export const products = {
+  chicken_breast: { fixed: true, life: 2, freezable: true, packs: [{ name: "Ocado British Chicken Breast Fillets", size: 650, price: 4.90, label: "650g pack" }] },
+  beef_mince_5:   { fixed: true, life: 7, packs: [{ name: "Ocado Fresher For Longer Lean Beef Steak Mince 5%", size: 500, price: 5.05, label: "500g pack" }] },
+  eggs:           { fixed: true, packs: [{ name: "Ocado Medium Free Range Eggs", size: 12, price: 2.95, label: "box of 12" }] },
+  qp_burger:      { fixed: true, life: 5, freezable: true, packs: [{ name: "Ocado 4 Quarter Pounder Beef Burgers", size: 4, price: 4.15, label: "pack of 4" }] },
+  lean_burger:    { fixed: true, packs: [{ name: "M&S Grill 2 Beef Burgers 3% Fat", size: 2, price: 5.00, label: "pack of 2" }] },
+  granola:        { fixed: true, lastsWeeks: 1, packs: [{ name: "Surreal High Protein Chocolate Hazelnut Granola", size: 300, price: 4.00, label: "300g box" }] },
+  pepperoni:      { fixed: true, packs: [{ name: "Properoni Sliced Pepperoni", size: 80, price: 2.70, label: "80g pack" }] },
+  // Label says eat once opened; the day after is as far as it goes.
+  guacamole:      { fixed: true, life: 7, opened: 1, packs: [{ name: "Holy Moly Guacamole Jalapeño & Red Pepper", size: 150, price: 2.50, label: "150g tub" }] },
+  peanut_butter_g:{ fixed: true, lastsWeeks: 2, packs: [{ name: "Pip & Nut Crunchy Peanut Butter", size: 300, price: 3.50, label: "300g jar" }] },
+  // Frozen and tinned keep for weeks, so like a cupboard staple they're costed
+  // by what's used rather than the whole bag.
+  broccoli:       { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Broccoli Florets", size: 1000, price: 1.30, label: "1kg bag" }] },
+  peas:           { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Garden Peas", size: 910, price: 1.55, label: "910g bag" }] },
+  spinach:        { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Leaf Spinach", size: 900, price: 1.70, label: "900g bag" }] },
+  edamame:        { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Edamame Beans", size: 600, price: 2.80, label: "600g bag" }] },
+  mango:          { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Mango Chunks", size: 500, price: 3.10, label: "500g bag" }] },
+  // An opened tin of beans keeps a couple of days in the fridge, so these
+  // are bought per use.
+  chickpeas:      { fixed: true, opened: 2, packs: [{ name: "Ocado Chickpeas in Water", size: 240, price: 0.42, label: "400g tin" }] },
+  kidney_beans:   { fixed: true, opened: 2, packs: [{ name: "Ocado Red Kidney Beans in Water", size: 240, price: 0.39, label: "400g tin" }] },
+  sweet_potato:   { fixed: true, life: 4, packs: [{ name: "Ocado Diced Sweet Potato", size: 350, price: 1.70, label: "350g pack" }] },
+  berries:        { fixed: true, staple: true, packs: [{ name: "Ocado Frozen Strawberries", size: 350, price: 3.10, label: "350g bag" }] },
+  olive_oil_g:    { fixed: true, lastsWeeks: 3, packs: [{ name: "Filippo Berio Extra Virgin Olive Oil Spray", size: 200, price: 5.00, label: "200ml spray" }] },
+  peri_rub:       { fixed: true, lastsWeeks: 1.5, packs: [{ name: "Nando's Hot Seasoning Rub", size: 25, price: 1.00, label: "25g sachet" }] },
+
+  milk: { default: 1, packs: [
+    { name: "Semi-skimmed milk 2 pint", size: 1136, price: 1.20, label: "2 pint" },
+    { name: "Semi-skimmed milk 4 pint", size: 2272, price: 1.75, label: "4 pint" },
+  ] },
+  // Innocent has been half price for his last four orders; £4.30 is the shelf
+  // price, so a week costs about £2 more when the offer ends.
+  // Opened, a carton keeps about 3 days (the usual label; not checked).
+  coconut_water: { default: 0, opened: 3, packs: [
+    { name: "Innocent Coconut Water 1L", size: 1000, price: 2.15, regular: 4.30, label: "1L carton" },
+    { name: "Vita Coco Coconut Water 1L", size: 1000, price: 4.00, label: "1L carton" },
+  ] },
+  greek_yoghurt: { default: 0, life: 7, packs: [
+    { name: "The Estate Dairy 10% Greek Style Natural Yoghurt", size: 1000, price: 3.85, regular: 4.50, label: "1kg tub" },
+    { name: "Odysea Organic Greek Yoghurt 2%", size: 1000, price: 5.00, label: "1kg tub" },
+  ] },
+  burger_bun: { default: 0, life: 7, freezable: true, packs: [{ name: "Warburtons 4 Seeded Brioche Burger Buns", size: 4, price: 2.00, regular: 2.85, label: "pack of 4" }] },
+  // A different brand each time, £1.00–£1.55. 2–3 weeks a bag.
+  pasta: { default: 0, lastsWeeks: 2.5, packs: [{ name: "Rigatoni 500g (any brand)", size: 500, price: 1.28, label: "500g bag" }] },
+  rice: { default: 0, checked: false, packs: [{ name: "Ocado Microwave Pure Basmati Rice", size: 250, price: 1.00, label: "250g pouch" }] },
+  // Ocado guarantees 3 days; he finds a loaf lasts about 5. Not marked
+  // freezable on purpose: he wants it eaten fresh, not a loaf spread over
+  // ten days.
+  sourdough: { default: 0, life: 4, packs: [{ name: "Jason's The Great White Sourdough", size: 7, price: 2.20, label: "450g loaf" }] },
+  naan: { default: 0, checked: false, life: 5, freezable: true, packs: [{ name: "Ocado 2 Plain Naans", size: 2, price: 1.45, label: "pack of 2" }] },
+
+  // Sauces: he gets through one every week or two, so bottles are spread
+  // over 1.5 weeks. A jar of curry or pasta sauce doesn't keep once opened
+  // (3 days is the usual label, not checked against these jars), so those
+  // are bought per use.
+  tikka_sauce:    { default: 0, opened: 3, packs: [{ name: "Patak's Tikka Masala Curry Sauce", size: 450, price: 2.65, label: "450g jar" }] },
+  pasta_sauce:    { default: 0, checked: false, opened: 3, packs: [{ name: "Dolmio Bolognese Smooth Tomato Sauce", size: 450, price: 2.60, label: "450g jar" }] },
+  teriyaki_sauce: { default: 0, checked: false, lastsWeeks: 1.5, packs: [{ name: "Kikkoman Toasted Sesame Teriyaki Sauce", size: 250, price: 3.35, label: "250ml bottle" }] },
+  peri_sauce:     { default: 0, checked: false, lastsWeeks: 1.5, packs: [{ name: "Nando's Peri-Peri Sauce Medium", size: 500, price: 4.50, label: "500g bottle" }] },
+};
+
+/** Plan at shelf prices instead of current offers. Used by the validation
+ *  sweep to show the cap still holds when an offer ends. */
+export const pricing = { regular: false };
+
+/** The product for an ingredient. Anything he has never bought is built from
+ *  the old estimate tables, so the whole app prices through one path. */
+export function productFor(id) {
+  if (products[id]) {
+    const p = { default: 0, ...products[id] };
+    return pricing.regular ? { ...p, packs: p.packs.map((pk) => ({ ...pk, price: pk.regular ?? pk.price })) } : p;
+  }
+  const ing = allIngredients.find((x) => x.id === id);
+  if (!ing || id === "whey") return null;
+  const pu = purchaseUnits[id];
+  const per100 = pricePer100g[id] ?? 0.3;
+  const PACK_PRICES = { tortilla: 1.4, pita: 1.1 };
+  let pack;
+  if (ing.unit === "each") {
+    const size = pu?.boxOf || 1;
+    pack = { size, price: PACK_PRICES[id] ?? (priceEach[id] ?? 0.3) * size, label: pu?.unit || "each", piece: !pu?.boxOf };
+  } else if (pu?.packSize) {
+    pack = { size: pu.packSize, price: (per100 * pu.packSize) / 100, label: `${pu.packSize}g pack` };
+  } else if (pu?.perUnit) {
+    pack = { size: pu.perUnit, price: (per100 * pu.perUnit) / 100, label: pu.size ? `${pu.size} ${pu.unit}` : pu.unit, piece: !pu.size };
+  } else {
+    pack = { size: 500, price: per100 * 5, label: "500g pack" };
+  }
+  return { default: 0, estimate: true, staple: Boolean(pu?.bulk), packs: [pack] };
+}
+
+/** Bought once and used across weeks (rigatoni, oil spray, peanut butter). */
+export function isStaple(id) {
+  const p = productFor(id);
+  return Boolean(p && (p.lastsWeeks || p.staple));
+}
+
+/** Price per gram (or per item, for ingredients counted `each`) of the
+ *  product he'd normally pick. */
+export function unitPrice(id) {
+  const p = productFor(id);
+  if (!p) return 0;
+  const pk = p.packs[p.default] || p.packs[0];
+  return pk.price / pk.size;
+}
+
+/** Whole packs to cover `need`, choosing whichever product in the category
+ *  does it cheapest — so a week that needs a litre of milk gets the 2 pint,
+ *  and anything more gets the 4 pint. Ties go to the default. Weighed things
+ *  get 3% slack so 1.31kg of chicken doesn't become a third pack. */
+export function choosePacks(id, need) {
+  const p = productFor(id);
+  if (!p || need <= 0) return null;
+  const ing = allIngredients.find((x) => x.id === id);
+  const slack = ing?.unit === "each" ? 0 : 0.03;
+  let best = null;
+  p.packs.forEach((pk, i) => {
+    const n = Math.max(1, Math.ceil(need / pk.size - slack));
+    const cost = n * pk.price;
+    const better = !best || cost < best.cost - 1e-9 || (Math.abs(cost - best.cost) < 1e-9 && i === p.default);
+    if (better) best = { pack: pk, n, cost, amount: n * pk.size };
+  });
+  return best;
+}
+
+/** What one week of using `used` of a staple really costs: the pack spread
+ *  over the weeks it lasts, or what was eaten, whichever is more. */
+export function stapleWeeklyCost(id, used) {
+  const p = productFor(id);
+  if (!p || used <= 0) return 0;
+  const pk = p.packs[p.default] || p.packs[0];
+  const byUse = used * (pk.price / pk.size);
+  return p.lastsWeeks ? Math.max(byUse, pk.price / p.lastsWeeks) : byUse;
+}
+
+/** What `qty` of an ingredient adds to a week's cost: whole packs for fresh
+ *  things, usage for staples. Same rule as the grocery list's weeklyCost, so
+ *  the planner and the list can't disagree about what something costs. */
+export function weekCostOf(id, qty) {
+  if (id === "whey" || qty <= 0) return 0;
+  if (isStaple(id)) return stapleWeeklyCost(id, qty);
+  return choosePacks(id, qty)?.cost || 0;
+}
+
+/** True when a meal using `id` on `day` (days since delivery) would be
+ *  eating it off. Freezable things are never too late: the list says to
+ *  freeze them on delivery instead. */
+export function tooLate(id, day) {
+  const p = products[id];
+  return Boolean(p && p.life !== undefined && !p.freezable && day > p.life);
+}
+
+/** How many packs the week needs once opened packs going off is counted.
+ *  `uses` is [{day, qty}]. A pack is opened on its first use and anything
+ *  more than `opened` days later needs a fresh one, so two jars of tikka
+ *  sauce a week apart cost two jars, not one. */
+export function packsForFreshness(id, uses) {
+  const p = productFor(id);
+  if (!p?.opened || !uses.length) return 0;
+  const size = (p.packs[p.default] || p.packs[0]).size;
+  let packs = 0, openedOn = -Infinity, left = 0;
+  [...uses].sort((a, b) => a.day - b.day).forEach(({ day, qty }) => {
+    let q = qty;
+    if (day - openedOn > p.opened) left = 0;           // what's left has gone off
+    while (q > 1e-9) {
+      if (left <= 1e-9) { packs++; openedOn = day; left = size; }
+      const take = Math.min(q, left); q -= take; left -= take;
+    }
+  });
+  return packs;
+}
+
+/** What has to go in the freezer on delivery day: anything freezable that a
+ *  meal uses after it would have gone off in the fridge. */
+export function toFreeze(id, uses) {
+  const p = products[id];
+  if (!p?.freezable || p.life === undefined) return null;
+  const late = uses.filter((u) => u.day > p.life);
+  if (!late.length) return null;
+  return { qty: late.reduce((a, u) => a + u.qty, 0), days: [...new Set(late.map((u) => u.dayName))] };
+}
 
 export function estimateItemCost(id, qty) {
-  const ing = allIngredients.find((x) => x.id === id);
-  if (!ing || id === "whey") return 0;
-  if (ing.unit === "each") return (priceEach[id] || 0) * qty;
-  return ((pricePer100g[id] || 0.3) * qty) / 100;
+  if (id === "whey") return 0;
+  return unitPrice(id) * qty;
 }
 
 // Turn a gram amount into something you can actually measure in a kitchen.
@@ -308,7 +536,6 @@ export const kitchenUnits = {
   mushroom:        { per: 70,  one: "cup sliced", half: true },
   celery:          { per: 40,  one: "stick" },
   edamame:         { per: 155, one: "cup", half: true },
-  sourdough:       { per: 45,  one: "slice" },
   chicken_breast:  { per: 175, one: "breast", half: true },
   chicken_thigh:   { per: 100, one: "thigh", half: true },
   salmon:          { per: 170, one: "fillet", half: true },
@@ -325,7 +552,10 @@ export function kitchenAmount(id, qty) {
     const noun = id === "eggs" ? (qty === 1 ? "egg" : "eggs")
       : id === "tortilla" ? (qty === 1 ? "tortilla" : "tortillas")
       : id === "pita" ? (qty === 1 ? "pita" : "pitas")
-      : id === "tuna_tin" ? (qty === 1 ? "tin of tuna" : "tins of tuna") : "";
+      : id === "sourdough" ? (qty === 1 ? "slice of sourdough" : "slices of sourdough")
+      : id === "qp_burger" || id === "lean_burger" ? (qty === 1 ? "burger" : "burgers")
+      : id === "burger_bun" ? (qty === 1 ? "bun" : "buns")
+      : id === "naan" ? (qty === 1 ? "naan" : "naans") : "";
     return noun ? `${qty} ${noun}` : `${qty}`;
   }
   if (ing.unit === "scoop") return qty === 1 ? "1 scoop" : `${qty} scoops`;

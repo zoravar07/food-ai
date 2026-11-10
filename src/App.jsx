@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { calculateTargets, analyseDay } from "./lib/macroEngine.js";
-import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules } from "./lib/mealPlanner.js";
+import { generateWeek, templates, interpretRules, excludeDisliked, trimToBudget, weekCost, rebalanceAfterSwap, setMealOnDay, appliedRules, fitsDay } from "./lib/mealPlanner.js";
 import { buildGroceryList } from "./lib/groceryListGenerator.js";
 import { allIngredients, kitchenAmount, macrosFor } from "./lib/foodDatabase.js";
 import { recipes } from "./lib/recipes.js";
@@ -15,7 +15,7 @@ const t = {
   line: "#2C3644", text: "#F0F3F7", soft: "#8D96A6", dim: "#5F6879",
   teal: "#4DD4B8", amber: "#F5A962", peri: "#7C9CFF", coral: "#FF7A7A", violet: "#B98CFF",
 };
-const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", cupboard: "Cupboard" };
+const AISLE = { produce: "Fruit & veg", meat: "Meat & fish", chilled: "Chilled", bakery: "Bakery", frozen: "Frozen", cupboard: "Cupboard" };
 const TABS = [
   { id: "groceries", label: "Shop", icon: "🛒" },
   { id: "pantry", label: "Pantry", icon: "🥫" },
@@ -752,7 +752,12 @@ function App({ session }) {
         if (!tpl) { flash("Couldn't find that meal"); return; }
         candidates = [tpl];
       } else {
-        const allowed = list.filter((t) => !blockedHere.includes(t.id));
+        // Nothing that would be off by that day (diced sweet potato on day
+        // 6), and no fruit past the weekly allowance. A meal he names
+        // outright (set_meal above) is his call.
+        const unblocked = list.filter((t) => !blockedHere.includes(t.id));
+        const fresh = unblocked.filter((t) => fitsDay(plan, di, a.slot, t));
+        const allowed = fresh.length ? fresh : unblocked;
         const different = allowed.filter((t) => t.id !== cur?.id);
         // Shuffled so an affordable swap is still a varied one, rather than always
         // landing on the single cheapest meal in the slot.
@@ -1109,10 +1114,12 @@ function App({ session }) {
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
               <h2 style={{ fontSize: 21, fontWeight: 700, margin: 0 }}>{view.readOnly ? "What you bought" : "Shopping list"}</h2>
-              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 19, fontWeight: 600, color: grocery.estimatedTotal <= (profile.budget_cap || 65) ? t.teal : t.coral }}>£{grocery.estimatedTotal.toFixed(2)}</span>
+              <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 19, fontWeight: 600, color: grocery.weeklyCost <= (profile.budget_cap || 65) ? t.teal : t.coral }}>£{grocery.estimatedTotal.toFixed(2)}</span>
             </div>
             <p style={{ fontSize: 13.5, color: t.soft, margin: "0 0 14px" }}>
-              {grocery.items.length} items
+              {/* The till total can sit above the cap on a week that restocks
+                  oil or rigatoni; the cap is about what the week's food costs. */}
+              £{grocery.weeklyCost.toFixed(2)} of food this week · {grocery.items.length} items
               {view.canEditItems && ` · ${Object.values(checked).filter(Boolean).length} in basket`}
               {view.bought && !view.readOnly && <span style={{ color: t.teal }}> · already shopped, this is what's still missing</span>}
             </p>
@@ -1144,7 +1151,7 @@ function App({ session }) {
                             <span style={{ color: t.peri, fontFamily: "'JetBrains Mono',monospace", marginRight: 7 }}>{it.display}</span>{it.name}
                           </div>
                           <div style={{ fontSize: 12, color: t.dim, marginTop: 2 }}>
-                            £{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}
+                            {it.product ? `${it.product} · ` : ""}£{it.estCost.toFixed(2)}{it.note ? ` · ${it.note}` : it.longLife ? " · lasts weeks" : ""}
                             {it.usedIn?.length ? ` · for ${it.usedIn.length} meal${it.usedIn.length === 1 ? "" : "s"}` : ""}
                           </div>
                         </div>
@@ -1237,7 +1244,7 @@ function App({ session }) {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
                         <span style={{ fontSize: 15.5, fontWeight: 600 }}>{it.name}</span>
                         <span style={{ fontSize: 13.5, color: t.soft, fontFamily: "'JetBrains Mono',monospace" }}>
-                          {sec.key === "cupboard" ? "in stock" : Number(it.quantity) > 0 ? kitchenAmount(it.ingredient_id, Math.round(Number(it.quantity))) : "none left"}
+                          {Number(it.quantity) > 0 ? kitchenAmount(it.ingredient_id, Math.round(Number(it.quantity))) : "none left"}
                         </span>
                       </div>
                       <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>

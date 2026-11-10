@@ -68,13 +68,16 @@ export function analyseDay(meals, allIngredients) {
       if (!ing) return;
       const perUnit = ing.unit === "each" || ing.unit === "scoop";
       const f = perUnit ? qty : qty / 100;
+      // Everything except kcal/protein is per 100g, so a counted item needs its
+      // weight: 4 eggs used to log 40g of fat (10g per 100g × 4) instead of ~22g.
+      const g = perUnit ? (qty * (ing.gPerUnit ?? 100)) / 100 : f;
       kcal += (perUnit ? (ing.kcalPerUnit ?? ing.kcal) : ing.kcal) * f;
       protein += (perUnit ? (ing.proteinPerUnit ?? ing.protein) : ing.protein) * f;
-      carbs += (ing.carbs || 0) * f;
-      fat += (ing.fat || 0) * f;
-      fibre += (ing.fibre || 0) * f;
-      potassium += (ing.potassium || 0) * f;
-      sodium += (ing.sodium || 0) * f;
+      carbs += (ing.carbs || 0) * g;
+      fat += (ing.fat || 0) * g;
+      fibre += (ing.fibre || 0) * g;
+      potassium += (ing.potassium || 0) * g;
+      sodium += (ing.sodium || 0) * g;
     });
   });
   return {

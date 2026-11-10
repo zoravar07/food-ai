@@ -449,14 +449,15 @@ export async function removePantryItem(ingredientId) {
   if (error) throw error;
 }
 
-/** Deduct what a cooked meal used */
-/** Deduct what a cooked meal used. Fresh items only — tracking how much cumin
- *  is left is not worth anyone's time, so cupboard staples are left alone. */
+/** Deduct what a cooked meal used. Cupboard staples run down too: they used
+ *  to be skipped, so a bag of rigatoni stayed at 500g in the pantry forever
+ *  and the list never asked for another one. A part-used pack now carries
+ *  into next week at what's genuinely left. */
 export async function consumeIngredients(items) {
   const pantry = await getPantry();
   for (const [id, qty] of items) {
     const row = pantry.find((p) => p.ingredient_id === id);
-    if (!row || row.category === "cupboard") continue;
+    if (!row) continue;
     const next = Math.max(0, Number(row.quantity) - qty);
     // Deliberately does NOT touch `low`. Cooking produces an accurate remainder,
     // and getLeftovers treats a low row as if it were empty — so auto-flagging
@@ -474,7 +475,7 @@ export async function restoreIngredients(items) {
   const pantry = await getPantry();
   for (const [id, qty] of items) {
     const row = pantry.find((p) => p.ingredient_id === id);
-    if (!row || row.category === "cupboard") continue;
+    if (!row) continue;
     const next = Number(row.quantity) + qty;
     // Same rule in reverse: putting stock back doesn't overrule what he said.
     await setPantryItem(id, row.name, next, row.unit, { category: row.category, low: row.low });
