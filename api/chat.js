@@ -39,52 +39,83 @@ async function userFor(req) {
   }
 }
 
-// Tried in order until one answers. flash-lite is the cheaper model and was
-// first here, but it has answered 503 to every request for as long as anyone
-// has looked, and a dead model at the head of the list costs a doomed round
-// trip on every message. It stays in the chain in case it comes back.
-const MODELS = ["gemini-3.6-flash", "gemini-3.1-flash-lite"];
+// Tried in order until one answers. Chosen by testing every model this key
+// can see (Nov 2026), with the real action instructions:
+// - gemini-3.5-flash-lite: answered every request, ~1-6s, emits the right
+//   action blocks. Highest free allowance of the three, so it goes first.
+// - gemini-3-flash-preview: the most accurate, ~2-3s, but answers "high
+//   demand" (503) on roughly one request in three.
+// - gemini-3.6-flash: good but slow (5-20s) and only 20 free requests a day,
+//   shared with gemini-3.5-flash. Last resort.
+// gemini-3.1-flash-lite answers too but took up to 43s, so it isn't here.
+const MODELS = ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.6-flash"];
 
-// Statuses where the next model is worth a try: the request itself is fine,
-// this particular model just cannot serve it right now. 429 is a rate limit,
-// 404 means retired or renamed, and the 5xx range is an outage on Google's
-// side. 503 ("this model is currently experiencing high demand") is what took
-// the assistant down, and it was the one status the old fallback missed.
-const TRY_NEXT = new Set([404, 429, 500, 502, 503, 504]);
+// Each model gets this long before the next one is tried, and the whole chain
+// stops here so the app is never left waiting on a dead assistant.
+const PER_MODEL_MS = 20000;
+const TOTAL_MS = 45000;
+
+// A model that has used its daily allowance stays used until it resets, so
+// there's no point asking it again on every message. Remembered for as long
+// as this server instance lives.
+const exhaustedUntil = {};
+
+/** Gemini says which quota ran out. A per-day one means the model is gone
+ *  until the reset; anything else (per minute, tokens) clears in a minute. */
+function quotaKind(body) {
+  if (/PerDay/i.test(body)) return "day";
+  return "minute";
+}
+
+function retrySeconds(body) {
+  const m = body.match(/"retryDelay":\s*"(\d+)s"/);
+  return m ? Number(m[1]) : 3600;
+}
 
 async function callGemini(model, systemPrompt, messages) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("GEMINI_API_KEY is not set in Vercel environment variables");
+  if (!key) throw Object.assign(new Error("GEMINI_API_KEY is not set in Vercel environment variables"), { fatal: true });
 
   const contents = messages.map((m) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.7 },
-      }),
-    }
-  );
+  let res;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        signal: AbortSignal.timeout(PER_MODEL_MS),
+        body: JSON.stringify({
+          contents,
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          generationConfig: { temperature: 0.7 },
+        }),
+      }
+    );
+  } catch (e) {
+    throw Object.assign(new Error(`${model} timed out or was unreachable`), { kind: "busy" });
+  }
 
   if (!res.ok) {
     const body = await res.text();
     const err = new Error(`${model} returned ${res.status}: ${body.replace(/\s+/g, " ").slice(0, 200)}`);
-    err.status = res.status;
-    err.tryNext = TRY_NEXT.has(res.status);
+    if (res.status === 429) {
+      err.kind = quotaKind(body) === "day" ? "quota-day" : "busy";
+      if (err.kind === "quota-day") exhaustedUntil[model] = Date.now() + retrySeconds(body) * 1000;
+    } else if (res.status === 404 || res.status >= 500) {
+      err.kind = "busy";        // retired, renamed, overloaded or down: try the next
+    } else {
+      err.fatal = true;         // a malformed request fails the same on every model
+    }
     throw err;
   }
 
   const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
-  return text;
+  return data?.candidates?.[0]?.content?.parts?.map((p) => p.text).join("") || "";
 }
 
 export default async function handler(req, res) {
@@ -104,33 +135,39 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "messages required" });
     }
 
-    let text;
+    let text, model;
     const failures = [];
-    for (const model of MODELS) {
+    const started = Date.now();
+    for (const m of MODELS) {
+      if (exhaustedUntil[m] > Date.now()) { failures.push({ model: m, kind: "quota-day" }); continue; }
+      if (Date.now() - started > TOTAL_MS) break;
       try {
-        text = await callGemini(model, systemPrompt || "", messages);
+        text = await callGemini(m, systemPrompt || "", messages);
+        model = m;
         break;
       } catch (e) {
-        failures.push(e.message);
-        // A missing key or a malformed request fails identically on every
-        // model, so working through the list would only waste the round trips.
-        if (!e.tryNext) throw e;
+        if (e.fatal) throw e;
+        failures.push({ model: m, kind: e.kind, msg: e.message });
       }
     }
 
-    // Worth a log line either way: a silent fallback still means the primary
-    // model is unhealthy, and that is the thing worth noticing early.
-    if (failures.length) console.warn(`chat: ${failures.join(" | ")}`);
+    // Worth a log line either way: a silent fallback still means a model in
+    // the chain is unhealthy, and that is the thing worth noticing early.
+    if (failures.length) console.warn(`chat: ${failures.map((f) => f.msg || `${f.model} skipped (${f.kind})`).join(" | ")}`);
 
     if (text === undefined) {
-      // Every model was unavailable. Raw provider JSON in a chat bubble tells
-      // him nothing he can act on, so say what happened in plain words.
-      return res.status(503).json({
-        error: "the AI provider is down right now — try again in a minute",
+      // Plain words he can act on. Out of quota means come back tomorrow;
+      // anything else means try again shortly.
+      const allQuota = failures.length === MODELS.length && failures.every((f) => f.kind === "quota-day");
+      return res.status(allQuota ? 429 : 503).json({
+        code: allQuota ? "quota" : "busy",
+        error: allQuota
+          ? "The assistant is out of free quota for today. It's back tomorrow (the allowance resets at 8am UK time). Everything else in the app still works."
+          : "The assistant's free models are all busy right now. Try again in a minute. Everything else in the app still works.",
       });
     }
 
-    return res.status(200).json({ text });
+    return res.status(200).json({ text, model });
   } catch (err) {
     return res.status(500).json({ error: err.message || "Unknown error" });
   }
