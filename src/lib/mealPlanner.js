@@ -15,10 +15,14 @@ const WEEKLY_CAP = { salmon: 1, steak: 1 };
 
 // Sanity ceilings: no single meal should ever exceed these, regardless of how
 // short the day is on calories. Prevents absurd outputs like a 770-kcal bowl of oats.
-const SLOT_KCAL_CEILING = { Breakfast: 700, Lunch: 900, Dinner: 950, Snack: 300 };
+// Lunch was 900 and stopped a second rice pouch on 1 day in 7 at £68; that's
+// a training day's lunch, not an excessive one.
+const SLOT_KCAL_CEILING = { Breakfast: 750, Lunch: 1150, Dinner: 1100, Snack: 300 };
 // Hard caps on how much of any one ingredient can land in a single meal.
 const INGREDIENT_MAX_G = {
-  oats: 90, rice: 250, pasta: 150, potato: 400, sweet_potato: 350, rice_noodles: 150,
+  // Rice is up to two pouches and pasta 200g dry: one pouch was the binding
+  // limit on lunch in a third of planned days.
+  oats: 90, rice: 500, pasta: 200, potato: 400, sweet_potato: 350, rice_noodles: 150,
   // Granola at 50g keeps it to a box a week, which is what he gets through.
   sourdough: 4, pita: 130, tortilla: 3, breadcrumbs: 60, greek_yoghurt: 300,
   naan: 2, burger_bun: 2, qp_burger: 2, granola: 50, chickpeas: 240, milk: 300,
@@ -320,11 +324,13 @@ function topUp(week, targets, budgetCap, leftovers = {}) {
   return week.map((day, dayIdx) => {
     let meals = day.meals;
     const dt = dayTargets(targets, meals);
-    for (let pass = 0; pass < 16; pass++) {
+    // The loop bound is a safety net, not a limit: it's far more steps than
+    // any day needs. The day stops when it reaches its target.
+    for (let pass = 0; pass < 80; pass++) {
       const tot = meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, protein: a.protein + m.protein }), { kcal: 0, protein: 0 });
-      // This used to stop at 92%, which is most of why weeks came in ~200
-      // kcal short even with no budget limit at all.
-      if (tot.kcal >= dt.targetKcal * 0.98 && tot.protein >= dt.protein * 0.97) break;
+      // This stopped at 92%, then 98%. Neither was a reason, just a number:
+      // the day now goes all the way to its target.
+      if (tot.kcal >= dt.targetKcal && tot.protein >= dt.protein) break;
 
       let bumped = false;
       const nextMeals = meals.map((m) => {
@@ -338,9 +344,14 @@ function topUp(week, targets, budgetCap, leftovers = {}) {
         const isPerUnit = ing.unit === "each";
         const cap = INGREDIENT_MAX_G[fid] ?? (isPerUnit ? 5 : 400);
         if (fqty >= cap) return m;
-        const step = isPerUnit ? 1 : fid === "milk" ? 50 : 20;
+        const step = isPerUnit ? 1 : fid === "milk" ? 50 : fid === "rice" ? 125 : 20;
         const next = Math.min(cap, fqty + step);
         const items = m.items.map(([id, q]) => (id === fid ? [id, next] : [id, q]));
+        // Only worth it if it brings the day closer to its calories (or
+        // protein is still short). Otherwise a 180-kcal half pouch on a day
+        // 40 short would overshoot further than it fixed.
+        const after = tot.kcal - m.kcal + macrosForItems(items).kcal;
+        if (tot.protein >= dt.protein && Math.abs(after - dt.targetKcal) >= Math.abs(tot.kcal - dt.targetKcal)) return m;
         bumped = true;
         return { ...m, items, ...macrosForItems(items) };
       });
@@ -938,6 +949,9 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
   const leftovers = options.leftovers || {};
   let best = null, bestScore = Infinity;
   let bestCompliant = null, bestCompliantScore = Infinity;
+  // A week with two different dinners is never "best", however it scores.
+  const varied = (w) => ["Lunch", "Dinner"].every((slot) =>
+    new Set(w.map((d) => d.meals.find((m) => m.slot === slot)).filter((m) => m && !m.eatOut).map((m) => m.id)).size >= 3);
 
   for (let i = 0; i < attempts; i++) {
     const candidate = generateCandidateWeek(targets, budgetCap, options);
@@ -948,12 +962,13 @@ export function generateWeek(targets, budgetCap = 65, attempts = 60, options = {
     const sc = scoreWeek(candidate, targets, budgetCap, options.favour || [], leftovers);
 
     if (sc < bestScore) { bestScore = sc; best = candidate; }
-    if (cost <= budgetCap && sc < bestCompliantScore) {
+    const better = !bestCompliant || (varied(candidate) && !varied(bestCompliant)) || (varied(candidate) === varied(bestCompliant) && sc < bestCompliantScore);
+    if (cost <= budgetCap && better) {
       bestCompliantScore = sc;
       bestCompliant = candidate;
     }
     // Stop early once we have a good week that fits the budget.
-    if (bestCompliant && bestCompliantScore < 60) break;
+    if (bestCompliant && bestCompliantScore < 60 && varied(bestCompliant)) break;
   }
 
   // Every attempt already ran the full swap-then-trim pipeline on its own candidate
